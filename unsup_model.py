@@ -33,8 +33,8 @@ tf.flags.DEFINE_integer("num_filters", 40, "Number of filters per filter size (d
 tf.flags.DEFINE_integer("window_length", 1600, "Window length") # 100 ms @ 16kHz
 tf.flags.DEFINE_integer("output_length", 200, "Output length") # ~12 ms @ 16kHz
 
-tf.flags.DEFINE_integer("fc_size", 768 , "Fully connected size at the end of the network.")
-tf.flags.DEFINE_integer("decoder_layers", 4 , "Decoder layers.")
+tf.flags.DEFINE_integer("fc_size", 128 , "Fully connected size at the end of the network.")
+tf.flags.DEFINE_integer("decoder_layers", 5 , "Decoder layers.")
 
 tf.flags.DEFINE_float("dropout_keep_prob", 0.5 , "Dropout keep probability")
 
@@ -62,7 +62,7 @@ tf.flags.DEFINE_boolean("log_device_placement", False, "Log placement of ops on 
 
 tf.flags.DEFINE_boolean("eval", False, "Eval instead of training")
 tf.flags.DEFINE_boolean("show_feat", False, "Display features of the encoder")
-tf.flags.DEFINE_float("temp", 1.0,"Temperature for sampling")
+tf.flags.DEFINE_float("temp", 0.8,"Temperature for sampling")
 tf.flags.DEFINE_integer("gen_steps", 500,"How many (full) prediction steps to do for the generation.")
 
 tf.flags.DEFINE_boolean("debug", False, "E.g. Smaller training data size")
@@ -332,10 +332,10 @@ class UnsupSeech(object):
                 #single_cell = tf.nn.rnn_cell.GRUCell(fc_size)
                 #single_cell = tf.nn.rnn_cell.DropoutWrapper(single_cell, output_keep_prob=0.8, state_is_tuple=False)
                 print('Decoder size: %d, layers %d' % (fc_size , decoder_layers))
-                single_cell = GRUCell_MulInt(fc_size, use_recurrent_dropout=is_training, recurrent_dropout_factor = 0.9)
+                single_cell = GRUCell_MulInt(fc_size, use_recurrent_dropout=is_training, recurrent_dropout_factor = 0.9 if is_training else 1.0)
                 cell = tf.nn.rnn_cell.MultiRNNCell([single_cell] * decoder_layers, state_is_tuple=False)
                 
-                cell = cwrnn.CWRNNCell([single_cell] * decoder_layers, [1,2,4,8,16,32,64,128,256,512,1024][:decoder_layers])
+                cell = cwrnn.CWRNNCell([single_cell] * decoder_layers, [1,4,8,16,32,64,128,256,512,1024][:decoder_layers], state_is_tuple=False)
                 #single_cell = HighwayRNNCell_MulInt(fc_size, num_highway_layers=decoder_layers, 
                 #                use_recurrent_dropout=is_training, recurrent_dropout_factor=0.9)
                 #cell = single_cell
@@ -350,7 +350,7 @@ class UnsupSeech(object):
 
                 #next_input_emb = self.decoder_first_input_emb
 
-                softmax_w = tf.get_variable("softmax_w", shape=[fc_size, mu], dtype=tf.float32)
+                softmax_w = tf.get_variable("softmax_w", shape=[fc_size*decoder_layers, mu], dtype=tf.float32)
                 softmax_b = tf.get_variable("softmax_b", shape=[mu], dtype=tf.float32)
                 
                 rnn_outputs = []
@@ -370,7 +370,9 @@ class UnsupSeech(object):
                         #next_input_emb = tf.nn.embedding_lookup(embedding, output_symbols)
                         #print('next_input shape:', next_input_emb.get_shape())
 
-                ##single RNN step
+               #[self.cell_output_softmax, self.output_state]
+               
+               ##single RNN step
                 with tf.variable_scope("decoderRNN"):
                     tf.get_variable_scope().reuse_variables()
                     (rnn_step_cell_output, rnn_step_state) = cell(self.input_symbol_emb[:,0,:], self.input_state)
@@ -478,6 +480,7 @@ class UnsupSeech(object):
         feed_dict = {self.input_x: [np_signal]}
         state = [self.gen_feat(sess, np_signal)]
         print ("np_signal[-1]: ", np_signal[-1])
+        print state
         input_symbol = discretize([np_signal[-1]])[0]
         print("input_symbol: %d" % input_symbol)
         generated = []
@@ -497,7 +500,7 @@ def gen_feat(filelist, sample_data=True):
                                 num_filters=FLAGS.num_filters, fc_size=FLAGS.fc_size, dropout_keep_prob=1.0, train_files = filelist, create_new_train_dir = False, is_training=False, decoder_layers=FLAGS.decoder_layers)
             if FLAGS.train_dir != "":
                 ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
-                if ckpt and gfile.Exists(ckpt.model_checkpoint_path):
+                if ckpt and ckpt.model_checkpoint_path:
                     print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
                     model.saver.restore(sess, ckpt.model_checkpoint_path)
                     # model is now loaded with the trained parameters
@@ -536,7 +539,7 @@ def train(filelist):
             restored = False
             if FLAGS.train_dir != "":
                 ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
-                if ckpt and gfile.Exists(ckpt.model_checkpoint_path):
+                if ckpt and ckpt.model_checkpoint_path:
                     print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
                     model.saver.restore(session, ckpt.model_checkpoint_path)
                     restored = True
@@ -607,7 +610,7 @@ if __name__ == "__main__":
     FLAGS._parse_flags()
     print("\nParameters:")
     print(get_FLAGS_params_as_str())
-    filelist = utils.loadIdFile(FLAGS.filelist, 10)
+    filelist = utils.loadIdFile(FLAGS.filelist, 300)
     print filelist
 
     if FLAGS.eval:
