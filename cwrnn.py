@@ -49,13 +49,14 @@ class CWRNNCell(tf.nn.rnn_cell.RNNCell):
     """Run cells on inputs, starting from state."""
     with tf.variable_scope(scope or type(self).__name__):  # "CWRNNCell"
       batch_size = inputs.get_shape().as_list()[0]
+      #print("cwrnn batch_size", batch_size)
       cur_state_pos = 0
       cur_outp_pos = 0
       outputs = []
       new_states = []
 
-      if self._last_output is None:
-        self._last_output = tf.zeros([batch_size, self.output_size])
+      #if self._last_output is None:
+      #  self._last_output = tf.zeros([batch_size, self.output_size])
 
       for i, cell in enumerate(self._cells):
         with tf.variable_scope("SubCell%d" % i):

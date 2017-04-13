@@ -80,7 +80,7 @@ FLAGS = tf.flags.FLAGS
 
 training_data = {}
 
-#from: https://github.com/fchollet/keras/blob/master/examples/lstm_text_generation.py
+#from: https://github.com/fchollet/keras/blob/master/examples/lstm_text_generation.p
 def sample(preds, temperature=1.0):
     # helper function to sample an index from a probability array
     preds = np.asarray(preds).astype('float64')
@@ -366,7 +366,7 @@ class UnsupSeech(object):
                     #    logits = tf.matmul(cell_output, softmax_w) + softmax_b
                     #    rnn_outputs.append(logits)
                     
-                    with tf.variable_scope("decoderRNN", reuse=True):
+                    with tf.variable_scope("decoderRNN"):
                         for time_step in range(0,output_length):
                             if time_step > 0: tf.get_variable_scope().reuse_variables()
                             #print('decoder_inputs shape:',self.decoder_inputs_emb[:,time_step,:].get_shape())
@@ -391,15 +391,16 @@ class UnsupSeech(object):
                 
                     self.cost = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=rnn_output, labels=tf.reshape(self.input_y,[-1]))) / batch_size
                     ##single RNN step
-                      
-                with tf.variable_scope("decoderRNN"):
-                    #                   with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-                        #tf.get_variable_scope().reuse_variables()
-                    (rnn_step_cell_output, rnn_step_state) = cell(self.input_symbol_emb[:,0,:], self.input_state)
-                    self.cell_output = rnn_step_cell_output
-                    self.output_state = rnn_step_state
-                    self.cell_output_logits = tf.matmul(self.cell_output, softmax_w) + softmax_b
-                    self.cell_output_softmax = tf.nn.softmax(self.cell_output_logits)
+                
+                else:
+                    with tf.variable_scope("decoderRNN"):
+                        #                   with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+                            #tf.get_variable_scope().reuse_variables()
+                        (rnn_step_cell_output, rnn_step_state) = cell(self.input_symbol_emb[:,0,:], self.input_state)
+                        self.cell_output = rnn_step_cell_output
+                        self.output_state = rnn_step_state
+                        self.cell_output_logits = tf.matmul(self.cell_output, softmax_w) + softmax_b
+                        self.cell_output_softmax = tf.nn.softmax(self.cell_output_logits)
                 
                 if is_training:
                     self.create_training_graphs(create_new_train_dir)
