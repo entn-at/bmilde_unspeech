@@ -1,4 +1,6 @@
-# Copyright 2016  Benjamin Milde, TU-Darmstadt
+# 2016 Benjamin Milde, TU-Darmstadt
+# 2017 Benjamin Milde, Universitaet Hamburg
+#
 # Inspired by https://github.com/dennybritz/cnn-text-classification-tf, as it also uses 1-D convolutions
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -176,7 +178,6 @@ class UnsupSeech(object):
         grad_summaries_merged = tf.merge_summary(grad_summaries)
 
         # Output directory for models and summaries
-
         if create_new_train_dir:
             timestamp = str(int(time.time()))
             self.out_dir = os.path.abspath(os.path.join(os.path.curdir, "runs", timestamp)) + '/'
@@ -297,26 +298,27 @@ class UnsupSeech(object):
                 #filter shape: filter_height, filter_width, in_channels, out_channels
                 #('pool1 shape:', TensorShape([Dimension(None), Dimension(1), Dimension(7), Dimension(80)]))
 
-                filter_shape = [1, 7, num_filters, num_filters*4]
-                print('filter_shape conv2:',filter_shape)
-                W2 = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.01), name="W2")
+                if second_cnn_layer:
+                    filter_shape = [1, 7, num_filters, num_filters*4]
+                    print('filter_shape conv2:',filter_shape)
+                    W2 = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.01), name="W2")
 
-                #b2 = tf.Variable(tf.constant(0.01, shape=[num_filters]), name="b2")
+                    #b2 = tf.Variable(tf.constant(0.01, shape=[num_filters]), name="b2")
 
-                conv = tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
+                    conv = tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
 
-                ## Apply nonlinearity
-                b = tf.Variable(tf.constant(0.01, shape=[filter_shape[-1]]), name="b2")
-                conv = tf.nn.relu(tf.nn.bias_add(conv, b), name="relu2")
+                    ## Apply nonlinearity
+                    b = tf.Variable(tf.constant(0.01, shape=[filter_shape[-1]]), name="b2")
+                    conv = tf.nn.relu(tf.nn.bias_add(conv, b), name="relu2")
 
-                pool_input_dim = conv.get_shape()[2]
-                print('conv2 shape:',conv.get_shape())
+                    pool_input_dim = conv.get_shape()[2]
+                    print('conv2 shape:',conv.get_shape())
 
-                pooled = tf.nn.max_pool(conv,ksize=[1, 1, pool_input_dim, 1], # pool over all outputs from previous layer
-                                        strides=[1, 1, 1 , 1], # no stride
-                                        padding='VALID',name="pool")
+                    pooled = tf.nn.max_pool(conv,ksize=[1, 1, pool_input_dim, 1], # pool over all outputs from previous layer
+                                            strides=[1, 1, 1 , 1], # no stride
+                                            padding='VALID',name="pool")
 
-                print('pool2 shape:',pooled.get_shape())
+                    print('pool2 shape:',pooled.get_shape())
 
                 #self.pooled_outputs.append(pooled)
 
@@ -324,10 +326,10 @@ class UnsupSeech(object):
                 # Reshape conv2 output to fit fully connected layer input
                 self.flattened_pooled = tf.reshape(pooled, [-1, flattened_size])
 			
-                print('pool2 shape:',self.flattened_pooled.get_shape())
+                print('flattened_pooled shape:',self.flattened_pooled.get_shape())
 
                 self.fc1 = self.fully_connected(self.flattened_pooled, flattened_size, fc_size*decoder_layers, name='fc1', use_dropout=is_training)
-                #self.fc2 = self.fully_connected(self.fc1, fc_size, fc_size, name='fc2', use_dropout=is_training)
+                self.fc2 = self.fully_connected(self.fc1, fc_size, fc_size, name='fc2', use_dropout=is_training)
                 
                 #single_cell = tf.nn.rnn_cell.GRUCell(fc_size)
                 #single_cell = tf.nn.rnn_cell.DropoutWrapper(single_cell, output_keep_prob=0.8, state_is_tuple=False)
@@ -340,8 +342,8 @@ class UnsupSeech(object):
                 #                use_recurrent_dropout=is_training, recurrent_dropout_factor=0.9)
                 #cell = single_cell
 
-                state = self.fc1
-                self.initial_state = self.fc1                
+                state = self.fc2
+                self.initial_state = self.fc2                
 
                 embedding = tf.get_variable("embedding", [mu+1, emb_size], initializer=tf.random_uniform_initializer(-1,1))
                 self.decoder_inputs_emb = tf.nn.embedding_lookup(embedding, self.decoder_inputs)
