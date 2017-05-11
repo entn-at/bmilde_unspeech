@@ -19,6 +19,7 @@
 import tensorflow as tf
 import numpy as np
 import os
+import sys
 import time
 import datetime
 from tensorflow.contrib import learn
@@ -30,19 +31,23 @@ import matplotlib.pyplot as pyplot
 from experimental_rnn.rnn_cell_mulint_modern import HighwayRNNCell_MulInt, GRUCell_MulInt
 import cwrnn_10 as cwrnn
 
-tf.flags.DEFINE_string("filter_sizes", "200", "Comma-separated filter sizes (default: '3,4,5')") # 25ms @ 16kHz
-tf.flags.DEFINE_integer("num_filters", 40, "Number of filters per filter size (default: 128)")
+if sys.version_info[0] == 3:
+    xrange = range
+    
 
-tf.flags.DEFINE_integer("window_length", 1600, "Window length") # 100 ms @ 16kHz
-tf.flags.DEFINE_integer("output_length", 200, "Output length") # ~12 ms @ 16kHz
+tf.flags.DEFINE_string("filter_sizes", "200", "Comma-separated filter sizes (default: '200')") # 25ms @ 16kHz
+tf.flags.DEFINE_integer("num_filters", 40, "Number of filters per filter size (default: 40)")
+
+tf.flags.DEFINE_integer("window_length", 800, "Window length") # 100+ ms @ 16kHz
+tf.flags.DEFINE_integer("output_length", 32, "Output length") # 50 ms @ 16kHz
 
 tf.flags.DEFINE_integer("fc_size", 128 , "Fully connected size at the end of the network.")
-tf.flags.DEFINE_integer("decoder_layers", 5 , "Decoder layers.")
+tf.flags.DEFINE_integer("decoder_layers", 2 , "Decoder layers.")
 
-tf.flags.DEFINE_float("dropout_keep_prob", 0.5 , "Dropout keep probability")
+tf.flags.DEFINE_float("dropout_keep_prob", 1.0 , "Dropout keep probability")
 
 # Training parameters
-tf.flags.DEFINE_string("filelist", "TEDLIUM2_wav.txt", "Filelist, one wav file per line")
+tf.flags.DEFINE_string("filelist", "filelist.track1.english", "Filelist, one wav file per line")
 tf.flags.DEFINE_string("cost_function", "mse", "Type of loss function to use for the model. Can be mse, mase, deriv, e_mse, e_mse_deriv.")
 
 tf.flags.DEFINE_integer("batch_size", 256, "Batch Size (default: 64)")
@@ -65,8 +70,8 @@ tf.flags.DEFINE_boolean("log_device_placement", False, "Log placement of ops on 
 
 tf.flags.DEFINE_boolean("eval", False, "Eval instead of training")
 tf.flags.DEFINE_boolean("show_feat", False, "Display features of the encoder")
-tf.flags.DEFINE_float("temp", 0.8,"Temperature for sampling")
-tf.flags.DEFINE_integer("gen_steps", 500,"How many (full) prediction steps to do for the generation.")
+tf.flags.DEFINE_float("temp", 1.0,"Temperature for sampling")
+tf.flags.DEFINE_integer("gen_steps", 10000,"How many (full) prediction steps to do for the generation.")
 
 tf.flags.DEFINE_boolean("debug", False, "E.g. Smaller training data size")
 
@@ -92,7 +97,7 @@ def sample(preds, temperature=1.0):
 
 #compresses the dynamic range, see https://en.wikipedia.org/wiki/%CE%9C-law_algorithm
 def encode_mulaw(signal,mu=255):
-    return np.sign(signal)*(np.log(1.0+mu*np.abs(signal)) / np.log(1.0+mu))
+    return np.sign(signal)*(np.log1p(1.0+mu*np.abs(signal)) / np.log1p(1.0+mu))
 
 #uncompress the dynamic range, see https://en.wikipedia.org/wiki/%CE%9C-law_algorithm
 def decode_mulaw(signal,mu=255):
@@ -122,30 +127,59 @@ def undiscretize(signal, mu=255.0):
     signal = np.fmin(1.0,signal)
     return signal
 
+
+
+
+def max_pool1d(value, ksize, strides, padding, data_format="NHWC", name=None):
+	"""Performs the max pooling on an input with one spatial dimension.
+
+	Args:
+	  value: A 3-D `Tensor` with shape `[batch, width, channels]` and
+		type `tf.float32`.
+	  ksize: A list of ints that has length 3.  The size of the window for
+		each dimension of the input tensor.
+	  strides: A list of ints that has length 3.  The stride of the sliding
+		window for each dimension of the input tensor.
+	  padding: A string, either `'VALID'` or `'SAME'`. The padding algorithm.
+		See the @{tf.nn.convolution$comment here}
+	  data_format: A string. 'NHWC' and 'NCHW' are supported.
+	  name: Optional name for the operation.
+
+	Returns:
+	  A `Tensor` with type `tf.float32`.  The max pooled output tensor.
+	"""
+	value_rsh = tf.reshape(value, [-1, 1, int(value.shape[1]), int(value.shape[2])])
+	ksize_rsh = [ksize[0], 1,  ksize[1], ksize[2]]
+	strides_rsh = [strides[0], 1, strides[1], strides[2]]
+
+	pooled = tf.nn.max_pool(value_rsh, ksize_rsh, strides_rsh, padding, data_format, name)
+	result = tf.reshape(pooled, [-1, int(pooled.shape[2]), int(pooled.shape[3])])
+	return result
+
 class UnsupSeech(object):
     """
     Unsupervised learning with RAW speech signals
     """
 
-    def maxpool1d(self, input_tensor, temporal_pool=1, channel_pool=1):
-        return tf.nn.max_pool(
-                    input_tensor,
-                    ksize=[1, 1, 2, 1],
-                    strides=[1, 1, 2, 1],
-                    padding='VALID',
-                    name="pool")
+    #def maxpool1d(self, input_tensor, temporal_pool=1, channel_pool=1):
+    #    return tf.nn.max_pool(
+    #                input_tensor,
+    #                ksize=[1, 1, 2, 1],
+    #                strides=[1, 1, 2, 1],
+    #                padding='VALID',
+    #                name="pool")
 
     def fully_connected(self, in_tensor, in_size, out_size, name='fc', non_linearity=tf.nn.relu, use_dropout=True, dropout_keep_prob=0.8):
-	    with tf.variable_scope(name):
-			wd = tf.get_variable('wd', shape=[in_size, out_size],initializer=tf.contrib.layers.xavier_initializer())
-			bd = tf.get_variable('bd', shape=[out_size], initializer=tf.truncated_normal_initializer(stddev=1.0/np.sqrt(out_size)))
+        with tf.variable_scope(name):
+            wd = tf.get_variable('wd', shape=[in_size, out_size],initializer=tf.contrib.layers.xavier_initializer())
+            bd = tf.get_variable('bd', shape=[out_size], initializer=tf.truncated_normal_initializer(stddev=1.0/np.sqrt(out_size)))
 
-			print('Fully connected layer: '+ name)
-			print('in_tensor shape:',in_tensor.get_shape())
-			print('bd shape:',bd.get_shape())
-			print('wd shape:',wd.get_shape())
+            print('Fully connected layer: '+ name)
+            print('in_tensor shape:',in_tensor.get_shape())
+            print('bd shape:',bd.get_shape())
+            print('wd shape:',wd.get_shape())
 
-			out_tensor = tf.add(tf.matmul(in_tensor, wd), bd)
+            out_tensor = tf.add(tf.matmul(in_tensor, wd), bd)
             if non_linearity is not None:
                 out_tensor = non_linearity(out_tensor)
             if use_dropout:
@@ -168,15 +202,16 @@ class UnsupSeech(object):
 
         #self.train_op = self.optimizer.minimize(self.cost)
 
-        # Keep track of gradient values and sparsity (optional)
-        grad_summaries = []
-        for g, v in self.grads_and_vars:
-            if g is not None:
-                grad_hist_summary = tf.summary.histogram("{}/grad/hist".format(v.name), g)
-                sparsity_summary = tf.summary.scalar("{}/grad/sparsity".format(v.name), tf.nn.zero_fraction(g))
-                grad_summaries.append(grad_hist_summary)
-                grad_summaries.append(sparsity_summary)
-        grad_summaries_merged = tf.summary.merge(grad_summaries)
+        if FLAGS.log_tensorboard:
+            # Keep track of gradient values and sparsity (optional)
+            grad_summaries = []
+            for g, v in self.grads_and_vars:
+                if g is not None:
+                    grad_hist_summary = tf.summary.histogram("{}/grad/hist".format(v.name), g)
+                    sparsity_summary = tf.summary.scalar("{}/grad/sparsity".format(v.name), tf.nn.zero_fraction(g))
+                    grad_summaries.append(grad_hist_summary)
+                    grad_summaries.append(sparsity_summary)
+            grad_summaries_merged = tf.summary.merge(grad_summaries)
 
         # Output directory for models and summaries
 
@@ -194,13 +229,14 @@ class UnsupSeech(object):
         else:
             self.out_dir = FLAGS.train_dir 
 
-        # Summaries for loss and accuracy
-        loss_summary = tf.summary.scalar("loss", self.cost)
-        #acc_summary = tf.scalar_summary("accuracy", self.accuracy)
+        if FLAGS.log_tensorboard:
+            # Summaries for loss and accuracy
+            loss_summary = tf.summary.scalar("loss", self.cost)
+            #acc_summary = tf.scalar_summary("accuracy", self.accuracy)
 
-        # Train Summaries
-        self.train_summary_op = tf.summary.merge([loss_summary, grad_summaries_merged])
-        train_summary_dir = os.path.join(self.out_dir, "summaries", "train")
+            # Train Summaries
+            self.train_summary_op = tf.summary.merge([loss_summary, grad_summaries_merged])
+            train_summary_dir = os.path.join(self.out_dir, "summaries", "train")
 
         # Dev summaries
         #dev_summary_op = tf.merge_summary([loss_summary, acc_summary])
@@ -256,9 +292,12 @@ class UnsupSeech(object):
         self.input_symbol = tf.placeholder(tf.int32, [None, 1])
         self.input_y = tf.placeholder(tf.int32, [None, output_length], name="input_y")
         self.input_state = tf.placeholder(tf.float32, [None, fc_size*decoder_layers])
-        
+       
+        second_cnn_layer = False
+
         with tf.variable_scope("unsupmodel"):
-            input_reshaped = tf.reshape(self.input_x, [-1, 1, window_length, 1])
+            #input_reshaped = tf.reshape(self.input_x, [-1, 1, window_length, 1])
+            input_reshaped = tf.reshape(self.input_x, [-1, window_length, 1])
 
             print('input_shape:', input_reshaped)
 
@@ -270,9 +309,14 @@ class UnsupSeech(object):
             i=0
 
             with tf.variable_scope("conv-maxpool-%s" % filter_size):
-                # Convolution Layer
+                # 2D conv
                 # [filter_height, filter_width, in_channels, out_channels]
-                filter_shape = [1 , filter_size, 1, num_filters]
+                
+                # 1D conv:
+                # [filter_width, in_channels, out_channels]
+
+                #filter_shape = [1 , filter_size, 1, num_filters]
+                filter_shape = [filter_size, 1, num_filters]
                 print('filter_shape:',filter_shape)
                 W = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.01), name="W")
                 #W = tf.get_variable("W",shape=filter_shape,initializer=tf.contrib.layers.xavier_initializer_conv2d())
@@ -280,71 +324,80 @@ class UnsupSeech(object):
                 # tf.nn.atrous_conv2d?
 
                 # 1D conv without padding(padding=VALID)
-                conv = tf.nn.conv2d(input_reshaped,W,strides=[1, 1, 2, 1],padding="VALID",name="conv")
+                #conv = tf.nn.conv2d(input_reshaped,W,strides=[1, 1, 2, 1],padding="VALID",name="conv")
+
+                conv = tf.nn.conv1d(input_reshaped, W, stride=2, padding="VALID",name="conv1")
 
                 ## Apply nonlinearity
                 b = tf.Variable(tf.constant(0.01, shape=[num_filters]), name="b1")
                 conv = tf.nn.relu(tf.nn.bias_add(conv, b), name="relu1")
 
-                pool_input_dim = conv.get_shape()[2]
+                pool_input_dim = int(conv.get_shape()[2])
 
+                print('pool input dim:', pool_input_dim)
                 print('conv1 shape:',conv.get_shape())
                 # Temporal maxpool accross all filters, pool size 2
-                pooled = tf.nn.max_pool(conv,ksize=[1, 1, pool_input_dim / 8, 1], # max_pool over / 4 of inputsize filters
-                                        strides=[1, 1, pool_input_dim / 16 , 1], # hopped by / 8 of input size
-                                        padding='VALID',name="pool")
+                #pooled = tf.nn.max_pool(conv,ksize=[1, 1, pool_input_dim / 8, 1], # max_pool over / 4 of inputsize filters
+                #                        strides=[1, 1, pool_input_dim / 16 , 1], # hopped by / 8 of input size
+                #                        padding='VALID',name="pool")
 
+                pooled = max_pool1d(conv, ksize=[1, filter_size , 1], strides=[1, pool_input_dim / 16 , 1], padding='VALID',name="pool")
                 print('pool1 shape:',pooled.get_shape())
 
                 #input shape: batch, in_height, in_width, in_channels
                 #filter shape: filter_height, filter_width, in_channels, out_channels
                 #('pool1 shape:', TensorShape([Dimension(None), Dimension(1), Dimension(7), Dimension(80)]))
 
-                filter_shape = [1, 7, num_filters, num_filters*4]
-                print('filter_shape conv2:',filter_shape)
-                W2 = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.01), name="W2")
+                if second_cnn_layer:
+                    filter_shape = [1, 7, num_filters, num_filters*4]
+                    print('filter_shape conv2:',filter_shape)
+                    W2 = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.01), name="W2")
 
-                #b2 = tf.Variable(tf.constant(0.01, shape=[num_filters]), name="b2")
+                    #b2 = tf.Variable(tf.constant(0.01, shape=[num_filters]), name="b2")
 
-                conv = tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
+                    conv = tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
 
-                ## Apply nonlinearity
-                b = tf.Variable(tf.constant(0.01, shape=[filter_shape[-1]]), name="b2")
-                conv = tf.nn.relu(tf.nn.bias_add(conv, b), name="relu2")
+                    ## Apply nonlinearity
+                    b = tf.Variable(tf.constant(0.01, shape=[filter_shape[-1]]), name="b2")
+                    conv = tf.nn.relu(tf.nn.bias_add(conv, b), name="relu2")
 
-                pool_input_dim = conv.get_shape()[2]
-                print('conv2 shape:',conv.get_shape())
+                    pool_input_dim = int(conv.get_shape()[2])
+                    print('conv2 shape:',conv.get_shape())
 
-                pooled = tf.nn.max_pool(conv,ksize=[1, 1, pool_input_dim, 1], # pool over all outputs from previous layer
-                                        strides=[1, 1, 1 , 1], # no stride
-                                        padding='VALID',name="pool")
+                    pooled = tf.nn.max_pool(conv,ksize=[1, 1, pool_input_dim, 1], # pool over all outputs from previous layer
+                                            strides=[1, 1, 1 , 1], # no stride
+                                            padding='VALID',name="pool")
 
-                print('pool2 shape:',pooled.get_shape())
+                    print('pool2 shape:',pooled.get_shape())
 
-                #self.pooled_outputs.append(pooled)
+                    #self.pooled_outputs.append(pooled)
 
-                flattened_size = int(pooled.get_shape()[2]*pooled.get_shape()[3])
+                flattened_size = int(pooled.get_shape()[1]*pooled.get_shape()[2])
                 # Reshape conv2 output to fit fully connected layer input
                 self.flattened_pooled = tf.reshape(pooled, [-1, flattened_size])
-			
-                print('pool2 shape:',self.flattened_pooled.get_shape())
+            
+                print('flattened_pooled shape:',self.flattened_pooled.get_shape())
 
                 self.fc1 = self.fully_connected(self.flattened_pooled, flattened_size, fc_size*decoder_layers, name='fc1', use_dropout=is_training)
-                #self.fc2 = self.fully_connected(self.fc1, fc_size, fc_size, name='fc2', use_dropout=is_training)
+                print('fc1 shape:',self.fc1.get_shape())
                 
+                self.fc2 = self.fully_connected(self.fc1, fc_size*decoder_layers, fc_size*decoder_layers, name='fc2', use_dropout=is_training)
+                print('fc2 shape:',self.fc2.get_shape())
+
                 #single_cell = tf.nn.rnn_cell.GRUCell(fc_size)
                 #single_cell = tf.nn.rnn_cell.DropoutWrapper(single_cell, output_keep_prob=0.8, state_is_tuple=False)
                 print('Decoder size: %d, layers %d' % (fc_size , decoder_layers))
                 single_cell = GRUCell_MulInt(fc_size, use_recurrent_dropout=is_training, recurrent_dropout_factor = 0.9 if is_training else 1.0)
-                #cell = tf.nn.rnn_cell.MultiRNNCell([single_cell] * decoder_layers, state_is_tuple=False)
+                cell = tf.contrib.rnn.MultiRNNCell([single_cell] * decoder_layers, state_is_tuple=False)
                 
-                cell = cwrnn.CWRNNCell([single_cell] * decoder_layers, [1,4,8,16,32,64,128,256,512,1024][:decoder_layers], state_is_tuple=False)
+                #cell = cwrnn.CWRNNCell([single_cell] * decoder_layers, [1,8,32,128,256,512,1024][:decoder_layers], state_is_tuple=False)
+                
                 #single_cell = HighwayRNNCell_MulInt(fc_size, num_highway_layers=decoder_layers, 
                 #                use_recurrent_dropout=is_training, recurrent_dropout_factor=0.9)
                 #cell = single_cell
 
-                state = self.fc1
-                self.initial_state = self.fc1                
+                state = self.fc2
+                self.initial_state = state                
 
                 embedding = tf.get_variable("embedding", [mu+1, emb_size], initializer=tf.random_uniform_initializer(-1,1))
                 self.decoder_inputs_emb = tf.nn.embedding_lookup(embedding, self.decoder_inputs)
@@ -354,7 +407,11 @@ class UnsupSeech(object):
                 #next_input_emb = self.decoder_first_input_emb
                 
                 #W = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.01), name="W")
-                softmax_w = tf.get_variable("softmax_w", shape=[fc_size*decoder_layers, mu], dtype=tf.float32)
+                
+                #needed with clockwork rnns
+                #softmax_w = tf.get_variable("softmax_w", shape=[fc_size*decoder_layers, mu], dtype=tf.float32)
+                #with standard RNN
+                softmax_w = tf.get_variable("softmax_w", shape=[fc_size, mu], dtype=tf.float32)
                 softmax_b = tf.get_variable("softmax_b", shape=[mu], dtype=tf.float32)
                     
                 if is_training:
@@ -462,7 +519,7 @@ class UnsupSeech(object):
             data[i] = symbol
 
         return sess.run([self.cell_output_softmax, self.output_state],{self.input_state: input_state,
-									  self.input_symbol: data})
+                                      self.input_symbol: data})
 
     # do a training step with the supplied input data
     def step(self, sess, input_x, input_y, decoder_inputs):
@@ -491,13 +548,13 @@ class UnsupSeech(object):
     def generate_signal(self, sess, np_signal, temperature=1.0):
         feed_dict = {self.input_x: [np_signal]}
         state = [self.gen_feat(sess, np_signal)]
-        print ("np_signal[-1]: ", np_signal[-1])
-        print state
+        print("np_signal[-1]: ", np_signal[-1])
+        print(state)
         input_symbol = discretize([np_signal[-1]])[0]
         print("input_symbol: %d" % input_symbol)
         generated = []
         for i in xrange(self.output_length):
-            cell_output,state = self.run_rnn_step(sess, [input_symbol], state)
+            cell_output, state = self.run_rnn_step(sess, [input_symbol], state)
             #input_symbol = np.argmax(cell_output[0])
             input_symbol = sample(cell_output[0],temperature=temperature)
             generated.append(input_symbol)
@@ -519,25 +576,26 @@ def gen_feat(filelist, sample_data=True):
                     model.saver.restore(sess, ckpt.model_checkpoint_path)
                     # model is now loaded with the trained parameters
                     for myfile in filelist:
-                        input_signal = training_data[myfile][20*16000:]
-                        if FLAGS.show_feat:
+                        input_signal = training_data[myfile][20*16000-800:]
+                        if True: #FLAGS.show_feat:
                             feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, 180)[:500])
                             pyplot.imshow(feat.T)
                             pyplot.show()
-                            print feat
-                        pre_sig_length = 1600 #1450
+                            print(feat)
+                        pre_sig_length = 2000 #1450
                         gen_signal = input_signal[:pre_sig_length]
-                        print 'Generating signal...'
+                        print('Generating signal...')
                         for i in xrange(FLAGS.gen_steps):
                             next_signal = model.generate_signal(sess, gen_signal[-FLAGS.window_length:], temperature=FLAGS.temp)
                             #model.gen_next_batch(sess, [gen_signal[-FLAGS.window_length:]])
                             #input_signal = input_signal[FLAGS.output_length:] + next_signal[0]
                             if i % 100 == 0:
-                                print next_signal[0]
+                                print(next_signal[0])
                                 print(gen_signal.shape)
                             gen_signal = np.append(gen_signal,next_signal)
-                        utils.writeSignal(gen_signal,'gentest.wav')
-                        print 'done!'
+                        utils.writeSignal(gen_signal,'gentest/gentest_o'+str(FLAGS.output_length)+'.temp'+str(FLAGS.temp)+'.gen_steps'+str(FLAGS.gen_steps)+'.wav')
+                        print('done!')
+                        break
                 else:
                     print("Could not open training dir: %s" % FLAGS.train_dir)
             else:
@@ -625,7 +683,7 @@ if __name__ == "__main__":
     print("\nParameters:")
     print(get_FLAGS_params_as_str())
     filelist = utils.loadIdFile(FLAGS.filelist, 300)
-    print filelist
+    print(filelist)
 
     if FLAGS.eval:
         filelist = utils.loadIdFile(FLAGS.filelist, 10)
@@ -648,6 +706,6 @@ if __name__ == "__main__":
         training_data[myfile] = signal
 
     if FLAGS.eval:
-        print gen_feat([filelist[-1]]) 
+        print(gen_feat([filelist[-1]]))
     else:
         train(filelist)
