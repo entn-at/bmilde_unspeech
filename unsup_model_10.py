@@ -35,20 +35,22 @@ if sys.version_info[0] == 3:
     xrange = range
     
 
-tf.flags.DEFINE_string("filter_sizes", "200", "Comma-separated filter sizes (default: '200')") # 25ms @ 16kHz
+tf.flags.DEFINE_string("filter_sizes", "400", "Comma-separated filter sizes (default: '200')") # 25ms @ 16kHz
 tf.flags.DEFINE_integer("num_filters", 40, "Number of filters per filter size (default: 40)")
 
 tf.flags.DEFINE_integer("window_length", 800, "Window length") # 100+ ms @ 16kHz
 tf.flags.DEFINE_integer("output_length", 32, "Output length") # 50 ms @ 16kHz
 
 tf.flags.DEFINE_integer("fc_size", 128 , "Fully connected size at the end of the network.")
-tf.flags.DEFINE_integer("decoder_layers", 2 , "Decoder layers.")
+tf.flags.DEFINE_integer("decoder_layers", 3 , "Decoder layers.")
 
 tf.flags.DEFINE_float("dropout_keep_prob", 1.0 , "Dropout keep probability")
 
 # Training parameters
 tf.flags.DEFINE_string("filelist", "filelist.track1.english", "Filelist, one wav file per line")
 tf.flags.DEFINE_string("cost_function", "mse", "Type of loss function to use for the model. Can be mse, mase, deriv, e_mse, e_mse_deriv.")
+
+tf.flags.DEFINE_float("l2_regularization_strength", None,"L2 regularization strength for training")
 
 tf.flags.DEFINE_integer("batch_size", 256, "Batch Size (default: 64)")
 tf.flags.DEFINE_integer("num_epochs", 200, "Number of training epochs (default: 200)")
@@ -71,7 +73,7 @@ tf.flags.DEFINE_boolean("log_device_placement", False, "Log placement of ops on 
 tf.flags.DEFINE_boolean("eval", False, "Eval instead of training")
 tf.flags.DEFINE_boolean("show_feat", False, "Display features of the encoder")
 tf.flags.DEFINE_float("temp", 1.0,"Temperature for sampling")
-tf.flags.DEFINE_integer("gen_steps", 10000,"How many (full) prediction steps to do for the generation.")
+tf.flags.DEFINE_integer("gen_steps", 1000,"How many (full) prediction steps to do for the generation.")
 
 tf.flags.DEFINE_boolean("debug", False, "E.g. Smaller training data size")
 
@@ -97,11 +99,11 @@ def sample(preds, temperature=1.0):
 
 #compresses the dynamic range, see https://en.wikipedia.org/wiki/%CE%9C-law_algorithm
 def encode_mulaw(signal,mu=255):
-    return np.sign(signal)*(np.log1p(1.0+mu*np.abs(signal)) / np.log1p(1.0+mu))
+    return np.sign(signal)*(np.log1p(mu*np.abs(signal)) / np.log1p(mu))
 
 #uncompress the dynamic range, see https://en.wikipedia.org/wiki/%CE%9C-law_algorithm
 def decode_mulaw(signal,mu=255):
-    return np.sign(signal)*(1.0/mu)*(np.power(1+mu,np.abs(signal))-1.0)
+    return np.sign(signal)*(1.0/mu)*(np.power(1.0+mu,np.abs(signal))-1.0)
 
 def get_FLAGS_params_as_str():
     params_str = ''
@@ -127,34 +129,35 @@ def undiscretize(signal, mu=255.0):
     signal = np.fmin(1.0,signal)
     return signal
 
+def pool1d(value, ksize, strides, padding, data_format="NHWC", name=None):
+    """Performs the max pooling on an input with one spatial dimension.
 
+    Args:
+      value: A 3-D `Tensor` with shape `[batch, width, channels]` and
+        type `tf.float32`.
+      ksize: A list of ints that has length 3.  The size of the window for
+        each dimension of the input tensor.
+      strides: A list of ints that has length 3.  The stride of the sliding
+        window for each dimension of the input tensor.
+      padding: A string, either `'VALID'` or `'SAME'`. The padding algorithm.
+        See the @{tf.nn.convolution$comment here}
+      data_format: A string. 'NHWC' and 'NCHW' are supported.
+      name: Optional name for the operation.
 
+    Returns:
+      A `Tensor` with type `tf.float32`.  The max pooled output tensor.
+    """
+    value_rsh = tf.reshape(value, [-1, 1, int(value.shape[1]), int(value.shape[2])])
+    ksize_rsh = [ksize[0], 1,  ksize[1], ksize[2]]
+    strides_rsh = [strides[0], 1, strides[1], strides[2]]
 
-def max_pool1d(value, ksize, strides, padding, data_format="NHWC", name=None):
-	"""Performs the max pooling on an input with one spatial dimension.
+    pooled = tf.nn.max_pool(value_rsh, ksize_rsh, strides_rsh, padding, data_format, name)
+    result = tf.reshape(pooled, [-1, int(pooled.shape[2]), int(pooled.shape[3])])
+    return result
 
-	Args:
-	  value: A 3-D `Tensor` with shape `[batch, width, channels]` and
-		type `tf.float32`.
-	  ksize: A list of ints that has length 3.  The size of the window for
-		each dimension of the input tensor.
-	  strides: A list of ints that has length 3.  The stride of the sliding
-		window for each dimension of the input tensor.
-	  padding: A string, either `'VALID'` or `'SAME'`. The padding algorithm.
-		See the @{tf.nn.convolution$comment here}
-	  data_format: A string. 'NHWC' and 'NCHW' are supported.
-	  name: Optional name for the operation.
-
-	Returns:
-	  A `Tensor` with type `tf.float32`.  The max pooled output tensor.
-	"""
-	value_rsh = tf.reshape(value, [-1, 1, int(value.shape[1]), int(value.shape[2])])
-	ksize_rsh = [ksize[0], 1,  ksize[1], ksize[2]]
-	strides_rsh = [strides[0], 1, strides[1], strides[2]]
-
-	pooled = tf.nn.max_pool(value_rsh, ksize_rsh, strides_rsh, padding, data_format, name)
-	result = tf.reshape(pooled, [-1, int(pooled.shape[2]), int(pooled.shape[3])])
-	return result
+#leakly relu to circumvent the dieing ReLU problem
+def lrelu(x, leak=0.2, name="lrelu"):
+  return tf.maximum(x, leak*x)
 
 class UnsupSeech(object):
     """
@@ -169,10 +172,10 @@ class UnsupSeech(object):
     #                padding='VALID',
     #                name="pool")
 
-    def fully_connected(self, in_tensor, in_size, out_size, name='fc', non_linearity=tf.nn.relu, use_dropout=True, dropout_keep_prob=0.8):
+    def fully_connected(self, in_tensor, in_size, out_size, name='fc', non_linearity=lrelu, use_dropout=True, dropout_keep_prob=0.8):
         with tf.variable_scope(name):
-            wd = tf.get_variable('wd', shape=[in_size, out_size],initializer=tf.contrib.layers.xavier_initializer())
-            bd = tf.get_variable('bd', shape=[out_size], initializer=tf.truncated_normal_initializer(stddev=1.0/np.sqrt(out_size)))
+            wd = tf.get_variable('w_d', shape=[in_size, out_size],initializer=tf.contrib.layers.xavier_initializer())
+            bd = tf.get_variable('bias_d', shape=[out_size], initializer=tf.truncated_normal_initializer(stddev=1.0/np.sqrt(out_size)))
 
             print('Fully connected layer: '+ name)
             print('in_tensor shape:',in_tensor.get_shape())
@@ -186,7 +189,7 @@ class UnsupSeech(object):
                 out_tensor = tf.nn.dropout(out_tensor, dropout_keep_prob)
             return out_tensor
 
-    def create_training_graphs(self, create_new_train_dir=True, clip_norm=True, max_grad_norm=0.5):
+    def create_training_graphs(self, create_new_train_dir=True, clip_norm=True, max_grad_norm=5.0):
         # Define Training procedure
         self.global_step = tf.Variable(0, name="global_step", trainable=False)
         self.optimizer = tf.train.AdamOptimizer(1e-4)
@@ -265,9 +268,9 @@ class UnsupSeech(object):
             random_pos_num = int(math.floor(np.random.random_sample() * audio_len))
             
             input_slice = audio_data[random_pos_num:random_pos_num+input_size]
-            output_slice = audio_data[random_pos_num+input_size-1:random_pos_num+input_size+output_size]
+            output_slice = np.array(audio_data[random_pos_num+input_size-1:random_pos_num+input_size+output_size])
 
-            output_slice_dis = discretize(output_slice)
+            output_slice_dis = discretize(encode_mulaw(output_slice))
             #print(input_slice, output_slice)
 
             input_x.append(input_slice)
@@ -284,15 +287,29 @@ class UnsupSeech(object):
         self.fc_size = fc_size
         self.window_length = window_length
 
-        # None -> automatically set to batch_size
+        # None -> automatically sets the dimension to batch_size
         # window length 80 sample = 5ms at 16kHz
         self.input_x = tf.placeholder(tf.float32, [None, window_length], name="input_x")
-        
+        # The true discrete labels of the sequence following the inputs
         self.decoder_inputs = tf.placeholder(tf.int32, [None, output_length], name="decoder_inputs")
+        # The last symbol of the input sequence (discretized)
         self.input_symbol = tf.placeholder(tf.int32, [None, 1])
+
+        #not used in training, but useful for sampling 
         self.input_y = tf.placeholder(tf.int32, [None, output_length], name="input_y")
         self.input_state = tf.placeholder(tf.float32, [None, fc_size*decoder_layers])
-       
+        
+        #
+        # The teacher forcing vector is an int vector with either zeros or ones. If the value x(t) is one at decoding step t, 
+        # then the argmax of t-1 predicted output is used, otherwise the true previous label is used.
+        # 
+        # See also:
+        # Samy Bengio, Oriol Vinyals, Navdeep Jaitly, Noam Shazeer, "Scheduled Sampling for Sequence Prediction with
+        # Recurrent Neural Networks", 2015 , (https://arxiv.org/pdf/1506.03099.pdf)
+        #
+        
+        self.teacher_forcing = tf.placeholder(tf.float32, [None, output_length])
+
         second_cnn_layer = False
 
         with tf.variable_scope("unsupmodel"):
@@ -329,10 +346,10 @@ class UnsupSeech(object):
                 conv = tf.nn.conv1d(input_reshaped, W, stride=2, padding="VALID",name="conv1")
 
                 ## Apply nonlinearity
-                b = tf.Variable(tf.constant(0.01, shape=[num_filters]), name="b1")
-                conv = tf.nn.relu(tf.nn.bias_add(conv, b), name="relu1")
+                b = tf.Variable(tf.constant(0.01, shape=[num_filters]), name="bias1")
+                conv = tf.nn.tanh(tf.nn.bias_add(conv, b), name="activation1")
 
-                pool_input_dim = int(conv.get_shape()[2])
+                pool_input_dim = int(conv.get_shape()[1])
 
                 print('pool input dim:', pool_input_dim)
                 print('conv1 shape:',conv.get_shape())
@@ -341,16 +358,26 @@ class UnsupSeech(object):
                 #                        strides=[1, 1, pool_input_dim / 16 , 1], # hopped by / 8 of input size
                 #                        padding='VALID',name="pool")
 
-                pooled = max_pool1d(conv, ksize=[1, filter_size , 1], strides=[1, pool_input_dim / 16 , 1], padding='VALID',name="pool")
+                pooled = pool1d(conv, ksize=[1, 4 , 1], strides=[1, pool_input_dim / 16 , 1], padding='VALID',name="pool")
                 print('pool1 shape:',pooled.get_shape())
+
+                pool_output_dim = int(pooled.get_shape()[1])
+                print('pool_output_dim shape:',pooled.get_shape())
+
+                pooled = tf.reshape(pooled,[-1,pool_output_dim, num_filters, 1])
+
+                print('pool1 reshaped shape:',pooled.get_shape())
 
                 #input shape: batch, in_height, in_width, in_channels
                 #filter shape: filter_height, filter_width, in_channels, out_channels
                 #('pool1 shape:', TensorShape([Dimension(None), Dimension(1), Dimension(7), Dimension(80)]))
 
+                second_cnn_layer = True
+
                 if second_cnn_layer:
-                    filter_shape = [1, 7, num_filters, num_filters*4]
-                    print('filter_shape conv2:',filter_shape)
+                    filter_shape = [5, 5, 1, 40]
+                    print('filter_shape conv2 2D:',filter_shape)
+
                     W2 = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.01), name="W2")
 
                     #b2 = tf.Variable(tf.constant(0.01, shape=[num_filters]), name="b2")
@@ -358,21 +385,22 @@ class UnsupSeech(object):
                     conv = tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
 
                     ## Apply nonlinearity
-                    b = tf.Variable(tf.constant(0.01, shape=[filter_shape[-1]]), name="b2")
-                    conv = tf.nn.relu(tf.nn.bias_add(conv, b), name="relu2")
+                    b = tf.Variable(tf.constant(0.01, shape=[filter_shape[-1]]), name="bias2")
+                    conv = tf.nn.tanh(tf.nn.bias_add(conv, b), name="activation2")
 
-                    pool_input_dim = int(conv.get_shape()[2])
+                    pool_input_dim = int(conv.get_shape()[1])
                     print('conv2 shape:',conv.get_shape())
 
-                    pooled = tf.nn.max_pool(conv,ksize=[1, 1, pool_input_dim, 1], # pool over all outputs from previous layer
+                    pooled = tf.nn.max_pool(conv,ksize=[1, pool_input_dim, 1, 1], # pool over all outputs from previous layer
                                             strides=[1, 1, 1 , 1], # no stride
                                             padding='VALID',name="pool")
 
                     print('pool2 shape:',pooled.get_shape())
 
+
                     #self.pooled_outputs.append(pooled)
 
-                flattened_size = int(pooled.get_shape()[1]*pooled.get_shape()[2])
+                flattened_size = int(pooled.get_shape()[1]*pooled.get_shape()[2]*pooled.get_shape()[3])
                 # Reshape conv2 output to fit fully connected layer input
                 self.flattened_pooled = tf.reshape(pooled, [-1, flattened_size])
             
@@ -387,10 +415,10 @@ class UnsupSeech(object):
                 #single_cell = tf.nn.rnn_cell.GRUCell(fc_size)
                 #single_cell = tf.nn.rnn_cell.DropoutWrapper(single_cell, output_keep_prob=0.8, state_is_tuple=False)
                 print('Decoder size: %d, layers %d' % (fc_size , decoder_layers))
-                single_cell = GRUCell_MulInt(fc_size, use_recurrent_dropout=is_training, recurrent_dropout_factor = 0.9 if is_training else 1.0)
-                cell = tf.contrib.rnn.MultiRNNCell([single_cell] * decoder_layers, state_is_tuple=False)
+                single_cell = GRUCell_MulInt(fc_size, use_recurrent_dropout=False) # is_training, recurrent_dropout_factor = 0.9 if is_training else 1.0)
+                #cell = tf.contrib.rnn.MultiRNNCell([single_cell] * decoder_layers, state_is_tuple=False)
                 
-                #cell = cwrnn.CWRNNCell([single_cell] * decoder_layers, [1,8,32,128,256,512,1024][:decoder_layers], state_is_tuple=False)
+                cell = cwrnn.CWRNNCell([single_cell] * decoder_layers, [1,4,8,32,128,256,512,1024][:decoder_layers], state_is_tuple=False)
                 
                 #single_cell = HighwayRNNCell_MulInt(fc_size, num_highway_layers=decoder_layers, 
                 #                use_recurrent_dropout=is_training, recurrent_dropout_factor=0.9)
@@ -409,9 +437,9 @@ class UnsupSeech(object):
                 #W = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.01), name="W")
                 
                 #needed with clockwork rnns
-                #softmax_w = tf.get_variable("softmax_w", shape=[fc_size*decoder_layers, mu], dtype=tf.float32)
+                softmax_w = tf.get_variable("softmax_w", shape=[fc_size*decoder_layers, mu], dtype=tf.float32)
                 #with standard RNN
-                softmax_w = tf.get_variable("softmax_w", shape=[fc_size, mu], dtype=tf.float32)
+                #softmax_w = tf.get_variable("softmax_w", shape=[fc_size, mu], dtype=tf.float32)
                 softmax_b = tf.get_variable("softmax_b", shape=[mu], dtype=tf.float32)
                     
                 if is_training:
@@ -429,7 +457,13 @@ class UnsupSeech(object):
                             #print('decoder_inputs shape:',self.decoder_inputs_emb[:,time_step,:].get_shape())
                             #print('state shape:',state.get_shape())
                             next_input_emb = self.decoder_inputs_emb[:,time_step,:]
-                            (cell_output, state) = cell(next_input_emb, state)
+                            if time_step > 0:
+                                output_symbol = tf.argmax(tf.nn.softmax(logits),1)
+                                # analog to numpys [:,time_step,np.newaxis] => shape is batchsize, 1
+                                teacher_force = tf.expand_dims(self.teacher_forcing[:,time_step], 1)
+                                # Either take the true label of t-1 (teacher forcing), or the argmax of the softmax distribution at timestep t-1, depending on the value in self.teacher_forcing[time_step] 
+                                next_input_emb = tf.multiply(next_input_emb,teacher_force) + tf.multiply(tf.nn.embedding_lookup(embedding, output_symbol), (1.0 - teacher_force))
+                            (cell_output, state) = cell(next_input_emb, state +self.fc2)
                             logits = tf.matmul(cell_output, softmax_w) + softmax_b        
                             rnn_outputs.append(logits)
                             #print('logits shape:',logits.get_shape())
@@ -445,9 +479,26 @@ class UnsupSeech(object):
                     self.out = tf.reshape(tf.argmax(rnn_output,1),[-1, output_length])
                     print('out shape (argmaxes):',self.out.get_shape())
 
-                
-                    self.cost = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=rnn_output, labels=tf.reshape(self.input_y,[-1]))) / batch_size
+                    ce_cost = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=rnn_output, labels=tf.reshape(self.input_y,[-1]))) / batch_size
                     ##single RNN step
+
+                    if FLAGS.l2_regularization_strength is None:
+                        self.cost = ce_cost
+                    else:
+                        print('imposing L2 reg on these vars:', ' '.join([v.name for v in tf.trainable_variables() if not('bias' in v.name)]))
+                        # L2 regularization for all trainable parameters
+                        l2_loss = tf.add_n([tf.nn.l2_loss(v)
+                                        for v in tf.trainable_variables()
+                                        if not('bias' in v.name)])
+
+                        # Add the regularization term to the loss
+                        total_loss = (ce_cost +
+                                  FLAGS.l2_regularization_strength * l2_loss)
+
+                        tf.summary.scalar('l2_loss', l2_loss)
+                        tf.summary.scalar('total_loss', total_loss)
+
+                        self.cost = total_loss
                 
                 else:
                     with tf.variable_scope("decoderRNN"):
@@ -522,10 +573,11 @@ class UnsupSeech(object):
                                       self.input_symbol: data})
 
     # do a training step with the supplied input data
-    def step(self, sess, input_x, input_y, decoder_inputs):
-        feed_dict = {self.input_x: input_x, self.input_y: input_y, self.decoder_inputs: decoder_inputs}
+    def step(self, sess, input_x, input_y, decoder_inputs, batch_size, current_step, lambd=0.0003):
+        teacher_force = (np.random.rand(batch_size , self.output_length) < np.exp(-1.0* lambd)) * 1.0
+        feed_dict = {self.input_x: input_x, self.input_y: input_y, self.decoder_inputs: decoder_inputs, self.teacher_forcing: teacher_force}
         _, output, loss = sess.run([self.train_op, self.out, self.cost], feed_dict=feed_dict)
-        return  output, loss
+        return  output, loss, teacher_force
 
     # generate features for 1D numpy input vector (audio in time domain)
     def gen_feat(self, sess, np_signal):
@@ -559,7 +611,7 @@ class UnsupSeech(object):
             input_symbol = sample(cell_output[0],temperature=temperature)
             generated.append(input_symbol)
         print("Generated:",generated)
-        return undiscretize(generated)
+        return decode_mulaw(undiscretize(generated))
 
 def gen_feat(filelist, sample_data=True):
     filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
@@ -645,7 +697,7 @@ def train(filelist):
                 # Get a batch and make a step.
                 start_time = time.time()
                 input_x, input_y, decoder_inputs = model.get_batch(filelist=filelist, input_size=FLAGS.window_length, output_size=FLAGS.output_length, batch_size=FLAGS.batch_size, model = 'post_pred')
-                output_y, train_loss = model.step(sess, input_x, input_y, decoder_inputs)
+                output_y, train_loss, teacher_force = model.step(sess, input_x, input_y, decoder_inputs, FLAGS.batch_size , current_step)
                 #train_loss = np.log(train_loss)
                 train_losses.append(train_loss)
 
@@ -662,6 +714,7 @@ def train(filelist):
 
                     print('real_y:', input_y[0])
                     print('output_y:', output_y[0])
+                    print('teacher_force:', teacher_force[0])
                     print('At step %i step-time %.4f loss %.4f' % (current_step, step_time, mean_train_loss))
                     #print('Input_x, input_y:', input_x[0], input_y[0])
                     train_losses = []
@@ -685,6 +738,23 @@ if __name__ == "__main__":
     filelist = utils.loadIdFile(FLAGS.filelist, 300)
     print(filelist)
 
+    x = np.linspace(-4, 4, 41)
+    x = np.sin(x)
+
+    print('signal:',x)
+    y = encode_mulaw(x)
+    print('encode_mulaw:',y)
+    x = decode_mulaw(y)
+    print('decode_mulaw:', x)
+    dis = discretize(x)
+    undis = undiscretize(dis)
+
+    print('discretize:',dis)
+    print('undiscretize:',undis)
+
+    print('continuing training in 5 seconds...')
+    time.sleep(5)
+
     if FLAGS.eval:
         filelist = utils.loadIdFile(FLAGS.filelist, 10)
         filelist = filelist[-5:]
@@ -700,7 +770,7 @@ if __name__ == "__main__":
         signal = np.fmax(-1.0,signal)
         signal = np.fmin(1.0,signal)
         #compress dynamic range
-        signal = encode_mulaw(signal)
+        #signal = encode_mulaw(signal)
         #signal /= np.std(signal)
         #signal = (signal-np.mean(signal))/np.std(signal);
         training_data[myfile] = signal
