@@ -31,6 +31,8 @@ import matplotlib.pyplot as pyplot
 from experimental_rnn.rnn_cell_mulint_modern import HighwayRNNCell_MulInt, GRUCell_MulInt
 import cwrnn_10 as cwrnn
 
+import tensorflow.contrib.slim as slim
+
 if sys.version_info[0] == 3:
     xrange = range
     
@@ -158,6 +160,28 @@ def pool1d(value, ksize, strides, padding, data_format="NHWC", name=None):
 #leakly relu to circumvent the dieing ReLU problem
 def lrelu(x, leak=0.2, name="lrelu"):
   return tf.maximum(x, leak*x)
+
+def DenseBlock2D(input_layer,filters, layer_num, num_connected):
+    with tf.variable_scope("dense_unit"+str(layer_num)):
+        nodes = []
+        a = slim.conv2d(input_layer,filters,[3,3],normalizer_fn=slim.batch_norm)
+        nodes.append(a)
+        for z in range(num_connected):
+            b = slim.conv2d(tf.concat(nodes,3),filters,[3,3],normalizer_fn=slim.batch_norm)
+            nodes.append(b)
+        return b
+
+#https://github.com/YixuanLi/densenet-tensorflow/blob/master/cifar10-densenet.py
+def DenseTransition(name, l, non_linearity=lrelu):
+	shape = l.get_shape().as_list()
+	in_channel = shape[3]
+	with tf.variable_scope(name) as scope:
+		l = BatchNorm('bn1', l)
+		l = tf.nn.relu(l)
+		l = Conv2D('conv1', l, in_channel, 1, stride=1, use_bias=False, nl=non_linearity)
+		l = AvgPooling('pool', l, 2)
+	return l
+
 
 class UnsupSeech(object):
     """
@@ -382,7 +406,7 @@ class UnsupSeech(object):
 
                     #b2 = tf.Variable(tf.constant(0.01, shape=[num_filters]), name="b2")
 
-                    conv = tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
+                    conv = DenseBlock2D(pooled, 40, 2, 4) #tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
 
                     ## Apply nonlinearity
                     b = tf.Variable(tf.constant(0.01, shape=[filter_shape[-1]]), name="bias2")
@@ -573,8 +597,8 @@ class UnsupSeech(object):
                                       self.input_symbol: data})
 
     # do a training step with the supplied input data
-    def step(self, sess, input_x, input_y, decoder_inputs, batch_size, current_step, lambd=0.0003):
-        teacher_force = (np.random.rand(batch_size , self.output_length) < np.exp(-1.0* lambd)) * 1.0
+    def step(self, sess, input_x, input_y, decoder_inputs, batch_size, current_step, lambd=0.00002):
+        teacher_force = (np.random.rand(batch_size , self.output_length) < np.exp(-1.0 * lambd * current_step)) * 1.0
         feed_dict = {self.input_x: input_x, self.input_y: input_y, self.decoder_inputs: decoder_inputs, self.teacher_forcing: teacher_force}
         _, output, loss = sess.run([self.train_op, self.out, self.cost], feed_dict=feed_dict)
         return  output, loss, teacher_force
@@ -726,7 +750,7 @@ def train(filelist):
                             min_loss = min(previous_losses)
                         if mean_train_loss < min_loss:
                             print(('Train loss: %.6f' % mean_train_loss) + (' is smaller than previous best loss: %.6f' % min_loss) )
-                            print('Saving the best model so far...')
+                            print('Saving the best model so far to ', model.out_dir, '...')
                             model.saver.save(sess, model.out_dir, global_step=model.global_step)
                             previous_losses.append(mean_train_loss)
 
