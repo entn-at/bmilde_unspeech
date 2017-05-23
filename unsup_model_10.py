@@ -57,7 +57,7 @@ tf.flags.DEFINE_float("l2_regularization_strength", None,"L2 regularization stre
 tf.flags.DEFINE_integer("batch_size", 256, "Batch Size (default: 64)")
 tf.flags.DEFINE_integer("num_epochs", 200, "Number of training epochs (default: 200)")
 
-tf.flags.DEFINE_integer("steps_per_checkpoint", 500,
+tf.flags.DEFINE_integer("steps_per_checkpoint", 2000,
                                 "How many training steps to do per checkpoint.")
 tf.flags.DEFINE_integer("steps_per_summary", 100,
                                 "How many training steps to do per checkpoint.")
@@ -161,27 +161,36 @@ def pool1d(value, ksize, strides, padding, data_format="NHWC", name=None):
 def lrelu(x, leak=0.2, name="lrelu"):
   return tf.maximum(x, leak*x)
 
-def DenseBlock2D(input_layer,filters, layer_num, num_connected):
+#https://gist.github.com/awjuliani/fb10d1ea206fab25f946512d959e3894
+def DenseBlock2D(input_layer,filters, layer_num, num_connected, non_linearity=lrelu):
     with tf.variable_scope("dense_unit"+str(layer_num)):
         nodes = []
-        a = slim.conv2d(input_layer,filters,[3,3],normalizer_fn=slim.batch_norm)
+        a = slim.conv2d(input_layer,filters,[3,3], activation_fn=non_linearity)
         nodes.append(a)
         for z in range(num_connected):
-            b = slim.conv2d(tf.concat(nodes,3),filters,[3,3],normalizer_fn=slim.batch_norm)
+            b = slim.conv2d(tf.concat(nodes,3),filters,[3,3], activation_fn=non_linearity)
             nodes.append(b)
         return b
 
 #https://github.com/YixuanLi/densenet-tensorflow/blob/master/cifar10-densenet.py
-def DenseTransition(name, l, non_linearity=lrelu):
-	shape = l.get_shape().as_list()
-	in_channel = shape[3]
-	with tf.variable_scope(name) as scope:
-		l = BatchNorm('bn1', l)
-		l = tf.nn.relu(l)
-		l = Conv2D('conv1', l, in_channel, 1, stride=1, use_bias=False, nl=non_linearity)
-		l = AvgPooling('pool', l, 2)
-	return l
+def DenseTransition2D(l, filters, name, with_conv=True, non_linearity=lrelu):
+    shape = l.get_shape().as_list()
+    in_channel = shape[3]
+    with tf.variable_scope(name):
+        if with_conv:
+            l = slim.conv2d(l,filters,[3,3], activation_fn=non_linearity)
+        l = slim.avg_pool2d(l, [2,2])
+    #with tf.variable_scope(name) as scope:
+    #   l = BatchNorm('bn1', l)
+#       l = lrelu(l)
+#       l = Conv2D('conv1', l, in_channel, 1, stride=1, use_bias=False, nl=non_linearity)
+#       l = AvgPooling('pool', l, 2)
+    return l
 
+def DenseFinal2D(l, name):
+    with tf.variable_scope(name):
+        l = slim.avg_pool2d(l, [7,7], stride=1)
+    return l
 
 class UnsupSeech(object):
     """
@@ -218,14 +227,16 @@ class UnsupSeech(object):
         self.global_step = tf.Variable(0, name="global_step", trainable=False)
         self.optimizer = tf.train.AdamOptimizer(1e-4)
 
-        if clip_norm:
-            tvars = tf.trainable_variables()
-            self.grads, _ = tf.clip_by_global_norm(tf.gradients(self.cost, tvars), max_grad_norm)
-            self.grads_and_vars = zip(self.grads, tvars)
-        else:
-            self.grads_and_vars = self.optimizer.compute_gradients(self.cost)
+        #if clip_norm:
+        #    tvars = tf.trainable_variables()
+        #    self.grads, _ = tf.clip_by_global_norm(tf.gradients(self.cost, tvars), max_grad_norm)
+        #    self.grads_and_vars = zip(self.grads, tvars)
+        #else:
+        #    self.grads_and_vars = self.optimizer.compute_gradients(self.cost)
         
-        self.train_op = self.optimizer.apply_gradients(self.grads_and_vars, global_step=self.global_step)
+        #self.train_op = self.optimizer.apply_gradients(self.grads_and_vars, global_step=self.global_step)
+        
+        self.train_op = slim.learning.create_train_op(self.cost, self.optimizer, global_step=self.global_step)
 
         #self.train_op = self.optimizer.minimize(self.cost)
 
@@ -399,27 +410,35 @@ class UnsupSeech(object):
                 second_cnn_layer = True
 
                 if second_cnn_layer:
-                    filter_shape = [5, 5, 1, 40]
-                    print('filter_shape conv2 2D:',filter_shape)
+                    #filter_shape = [5, 5, 1, 40]
+                    #print('filter_shape conv2 2D:',filter_shape)
 
-                    W2 = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.01), name="W2")
+                    #W2 = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.01), name="W2")
 
                     #b2 = tf.Variable(tf.constant(0.01, shape=[num_filters]), name="b2")
 
-                    conv = DenseBlock2D(pooled, 40, 2, 4) #tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
+                    #DenseBlock2D(input_layer,filters, layer_num, num_connected)
+                    with slim.arg_scope([slim.conv2d, slim.fully_connected], normalizer_fn=slim.batch_norm,
+                                                normalizer_params={'is_training': is_training, 'decay': 0.95}):
+                        conv = DenseBlock2D(pooled, 40, 2, num_connected=4) #tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
+                        pooled = DenseTransition2D(conv, 40, 'transition1') 
+                        
+                        conv = DenseBlock2D(pooled, 40, 3, num_connected=4)
+                        #pooled = DenseTransition2D(conv, 40, 'transition2')
+                        pooled = DenseFinal2D(conv, 'dense_end')
 
                     ## Apply nonlinearity
-                    b = tf.Variable(tf.constant(0.01, shape=[filter_shape[-1]]), name="bias2")
-                    conv = tf.nn.tanh(tf.nn.bias_add(conv, b), name="activation2")
+                    #b = tf.Variable(tf.constant(0.01, shape=[filter_shape[-1]]), name="bias2")
+                    #conv = tf.nn.tanh(tf.nn.bias_add(conv, b), name="activation2")
 
-                    pool_input_dim = int(conv.get_shape()[1])
-                    print('conv2 shape:',conv.get_shape())
+                    #pool_input_dim = int(conv.get_shape()[1])
+                    #print('conv2 shape:',conv.get_shape())
 
-                    pooled = tf.nn.max_pool(conv,ksize=[1, pool_input_dim, 1, 1], # pool over all outputs from previous layer
-                                            strides=[1, 1, 1 , 1], # no stride
-                                            padding='VALID',name="pool")
-
-                    print('pool2 shape:',pooled.get_shape())
+                    #pooled = tf.nn.max_pool(conv,ksize=[1, pool_input_dim, 1, 1], # pool over all outputs from previous layer
+                    #                        strides=[1, 1, 1 , 1], # no stride
+                    #                        padding='VALID',name="pool")
+                    #
+                    print('pool shape after dense blocks:', pooled.get_shape())
 
 
                     #self.pooled_outputs.append(pooled)
@@ -430,15 +449,17 @@ class UnsupSeech(object):
             
                 print('flattened_pooled shape:',self.flattened_pooled.get_shape())
 
-                self.fc1 = self.fully_connected(self.flattened_pooled, flattened_size, fc_size*decoder_layers, name='fc1', use_dropout=is_training)
+                self.fc1 = self.fully_connected(self.flattened_pooled, flattened_size, fc_size*decoder_layers, name='fc1', use_dropout=False) #is_training)
                 print('fc1 shape:',self.fc1.get_shape())
                 
-                self.fc2 = self.fully_connected(self.fc1, fc_size*decoder_layers, fc_size*decoder_layers, name='fc2', use_dropout=is_training)
-                print('fc2 shape:',self.fc2.get_shape())
+                #self.fc2 = self.fully_connected(self.fc1, fc_size*decoder_layers, fc_size*decoder_layers, name='fc2', use_dropout=is_training)
+                #print('fc2 shape:',self.fc2.get_shape())
 
                 #single_cell = tf.nn.rnn_cell.GRUCell(fc_size)
                 #single_cell = tf.nn.rnn_cell.DropoutWrapper(single_cell, output_keep_prob=0.8, state_is_tuple=False)
                 print('Decoder size: %d, layers %d' % (fc_size , decoder_layers))
+                #single_cell = tf.nn.rnn_cell.GRUCell(fc_size)
+                #single_cell = tf.contrib.rnn.LSTMCell(fc_size, state_is_tuple=False)
                 single_cell = GRUCell_MulInt(fc_size, use_recurrent_dropout=False) # is_training, recurrent_dropout_factor = 0.9 if is_training else 1.0)
                 #cell = tf.contrib.rnn.MultiRNNCell([single_cell] * decoder_layers, state_is_tuple=False)
                 
@@ -448,7 +469,7 @@ class UnsupSeech(object):
                 #                use_recurrent_dropout=is_training, recurrent_dropout_factor=0.9)
                 #cell = single_cell
 
-                state = self.fc2
+                state = self.fc1
                 self.initial_state = state                
 
                 embedding = tf.get_variable("embedding", [mu+1, emb_size], initializer=tf.random_uniform_initializer(-1,1))
@@ -487,7 +508,7 @@ class UnsupSeech(object):
                                 teacher_force = tf.expand_dims(self.teacher_forcing[:,time_step], 1)
                                 # Either take the true label of t-1 (teacher forcing), or the argmax of the softmax distribution at timestep t-1, depending on the value in self.teacher_forcing[time_step] 
                                 next_input_emb = tf.multiply(next_input_emb,teacher_force) + tf.multiply(tf.nn.embedding_lookup(embedding, output_symbol), (1.0 - teacher_force))
-                            (cell_output, state) = cell(next_input_emb, state +self.fc2)
+                            (cell_output, state) = cell(next_input_emb, state) # +self.fc1)
                             logits = tf.matmul(cell_output, softmax_w) + softmax_b        
                             rnn_outputs.append(logits)
                             #print('logits shape:',logits.get_shape())
@@ -597,7 +618,7 @@ class UnsupSeech(object):
                                       self.input_symbol: data})
 
     # do a training step with the supplied input data
-    def step(self, sess, input_x, input_y, decoder_inputs, batch_size, current_step, lambd=0.00002):
+    def step(self, sess, input_x, input_y, decoder_inputs, batch_size, current_step, lambd=0.00004):
         teacher_force = (np.random.rand(batch_size , self.output_length) < np.exp(-1.0 * lambd * current_step)) * 1.0
         feed_dict = {self.input_x: input_x, self.input_y: input_y, self.decoder_inputs: decoder_inputs, self.teacher_forcing: teacher_force}
         _, output, loss = sess.run([self.train_op, self.out, self.cost], feed_dict=feed_dict)
