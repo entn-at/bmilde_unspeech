@@ -13,7 +13,6 @@ import experimental_rnn.linear_modern as linear
 from tensorflow.contrib.rnn.python.ops import core_rnn_cell as _rnn_cell
 import experimental_rnn.highway_network_modern
 
-
 RNNCell = _rnn_cell.RNNCell
 
 
