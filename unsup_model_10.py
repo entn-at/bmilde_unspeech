@@ -32,6 +32,7 @@ from experimental_rnn.rnn_cell_mulint_modern import HighwayRNNCell_MulInt, GRUCe
 import cwrnn_10 as cwrnn
 
 import tensorflow.contrib.slim as slim
+from tensorflow.python.ops import control_flow_ops
 
 if sys.version_info[0] == 3:
     xrange = range
@@ -43,7 +44,7 @@ tf.flags.DEFINE_integer("num_filters", 40, "Number of filters per filter size (d
 tf.flags.DEFINE_integer("window_length", 800, "Window length") # 100+ ms @ 16kHz
 tf.flags.DEFINE_integer("output_length", 32, "Output length") # 50 ms @ 16kHz
 
-tf.flags.DEFINE_integer("fc_size", 128 , "Fully connected size at the end of the network.")
+tf.flags.DEFINE_integer("fc_size", 512 , "Fully connected size at the end of the network.")
 tf.flags.DEFINE_integer("decoder_layers", 3 , "Decoder layers.")
 
 tf.flags.DEFINE_float("dropout_keep_prob", 1.0 , "Dropout keep probability")
@@ -82,7 +83,8 @@ tf.flags.DEFINE_boolean("debug", False, "E.g. Smaller training data size")
 tf.app.flags.DEFINE_boolean("log_tensorboard", False, "Log training process if this is set to True.")
 
 # Model dir
-tf.flags.DEFINE_string("train_dir", "", "Training dir to resume training from. If empty, a new one will be created.")
+tf.flags.DEFINE_string("train_dir", "/srv/data/milde/unspeech_models/", "Training dir to resume training from. If empty, a new one will be created.")
+tf.flags.DEFINE_string("genwav_dir", "gentest/", "When sampling, generate wav files in this directory..")
 
 #
 FLAGS = tf.flags.FLAGS
@@ -189,7 +191,7 @@ def DenseTransition2D(l, filters, name, with_conv=True, non_linearity=lrelu):
 
 def DenseFinal2D(l, name):
     with tf.variable_scope(name):
-        l = slim.avg_pool2d(l, [7,7], stride=1)
+        l = slim.avg_pool2d(l, [5,5], stride=1)
     return l
 
 class UnsupSeech(object):
@@ -236,7 +238,14 @@ class UnsupSeech(object):
         
         #self.train_op = self.optimizer.apply_gradients(self.grads_and_vars, global_step=self.global_step)
         
+        # see https://github.com/soloice/mnist-bn/blob/master/mnist_bn.py for an easy example on training with slim and batchnorm
         self.train_op = slim.learning.create_train_op(self.cost, self.optimizer, global_step=self.global_step)
+
+        self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+        if self.update_ops:
+            print('Will add update_ops dependency ...')
+            updates = tf.group(*self.update_ops)
+            cross_entropy = control_flow_ops.with_dependencies([updates], self.cost)
 
         #self.train_op = self.optimizer.minimize(self.cost)
 
@@ -255,7 +264,7 @@ class UnsupSeech(object):
 
         if create_new_train_dir:
             timestamp = str(int(time.time()))
-            self.out_dir = os.path.abspath(os.path.join(os.path.curdir, "runs", timestamp)) + '/' + 'tf10'
+            self.out_dir = os.path.abspath(os.path.join(FLAGS.train_dir, "runs", timestamp)) + '/' + 'tf10'
             print("Writing to {}\n".format(self.out_dir))
             # Checkpoint directory. Tensorflow assumes this directory already exists so we need to create it
             checkpoint_dir = os.path.abspath(os.path.join(self.out_dir, "checkpoints"))
@@ -302,7 +311,7 @@ class UnsupSeech(object):
 
             random_pos_num = int(math.floor(np.random.random_sample() * audio_len))
             
-            input_slice = audio_data[random_pos_num:random_pos_num+input_size]
+            input_slice = np.array(audio_data[random_pos_num:random_pos_num+input_size])
             output_slice = np.array(audio_data[random_pos_num+input_size-1:random_pos_num+input_size+output_size])
 
             output_slice_dis = discretize(encode_mulaw(output_slice))
@@ -393,7 +402,8 @@ class UnsupSeech(object):
                 #                        strides=[1, 1, pool_input_dim / 16 , 1], # hopped by / 8 of input size
                 #                        padding='VALID',name="pool")
 
-                pooled = pool1d(conv, ksize=[1, 4 , 1], strides=[1, pool_input_dim / 16 , 1], padding='VALID',name="pool")
+                # check if the 1d pooling operation is correct
+                pooled = pool1d(conv, ksize=[1, 4 , 1], strides=[1, 4 , 1], padding='VALID',name="pool")
                 print('pool1 shape:',pooled.get_shape())
 
                 pool_output_dim = int(pooled.get_shape()[1])
@@ -420,10 +430,10 @@ class UnsupSeech(object):
                     #DenseBlock2D(input_layer,filters, layer_num, num_connected)
                     with slim.arg_scope([slim.conv2d, slim.fully_connected], normalizer_fn=slim.batch_norm,
                                                 normalizer_params={'is_training': is_training, 'decay': 0.95}):
-                        conv = DenseBlock2D(pooled, 40, 2, num_connected=4) #tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
+                        conv = DenseBlock2D(pooled, 10, 2, num_connected=3) #tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
                         pooled = DenseTransition2D(conv, 40, 'transition1') 
                         
-                        conv = DenseBlock2D(pooled, 40, 3, num_connected=4)
+                        conv = DenseBlock2D(pooled, 10, 3, num_connected=3)
                         #pooled = DenseTransition2D(conv, 40, 'transition2')
                         pooled = DenseFinal2D(conv, 'dense_end')
 
@@ -508,7 +518,7 @@ class UnsupSeech(object):
                                 teacher_force = tf.expand_dims(self.teacher_forcing[:,time_step], 1)
                                 # Either take the true label of t-1 (teacher forcing), or the argmax of the softmax distribution at timestep t-1, depending on the value in self.teacher_forcing[time_step] 
                                 next_input_emb = tf.multiply(next_input_emb,teacher_force) + tf.multiply(tf.nn.embedding_lookup(embedding, output_symbol), (1.0 - teacher_force))
-                            (cell_output, state) = cell(next_input_emb, state) # +self.fc1)
+                            (cell_output, state) = cell(next_input_emb, state + self.fc1)
                             logits = tf.matmul(cell_output, softmax_w) + softmax_b        
                             rnn_outputs.append(logits)
                             #print('logits shape:',logits.get_shape())
@@ -690,7 +700,7 @@ def gen_feat(filelist, sample_data=True):
                                 print(next_signal[0])
                                 print(gen_signal.shape)
                             gen_signal = np.append(gen_signal,next_signal)
-                        utils.writeSignal(gen_signal,'gentest/gentest_o'+str(FLAGS.output_length)+'.temp'+str(FLAGS.temp)+'.gen_steps'+str(FLAGS.gen_steps)+'.wav')
+                        utils.writeSignal(gen_signal, FLAGS.genwav_dir + '/gentest_o'+str(FLAGS.output_length)+'.temp'+str(FLAGS.temp)+'.gen_steps'+str(FLAGS.gen_steps)+'.wav')
                         print('done!')
                         break
                 else:
@@ -713,7 +723,7 @@ def train(filelist):
                     model.saver.restore(session, ckpt.model_checkpoint_path)
                     restored = True
                 else:
-                    print("Could load parameters from" + FLAGS.train_dir)
+                    print("Couldn't load parameters from:" + FLAGS.train_dir)
             if not restored:
                 print("Created model with fresh parameters.")
                 sess.run(tf.global_variables_initializer())
@@ -769,7 +779,8 @@ def train(filelist):
                         min_loss = 1e10
                         if len(previous_losses) > 0:
                             min_loss = min(previous_losses)
-                        if mean_train_loss < min_loss:
+                        if 1==1:
+                        #if mean_train_loss < min_loss:
                             print(('Train loss: %.6f' % mean_train_loss) + (' is smaller than previous best loss: %.6f' % min_loss) )
                             print('Saving the best model so far to ', model.out_dir, '...')
                             model.saver.save(sess, model.out_dir, global_step=model.global_step)
