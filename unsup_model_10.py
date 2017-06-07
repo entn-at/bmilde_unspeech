@@ -37,28 +37,35 @@ from tensorflow.python.ops import control_flow_ops
 if sys.version_info[0] == 3:
     xrange = range
     
-
-tf.flags.DEFINE_string("filter_sizes", "400", "Comma-separated filter sizes (default: '200')") # 25ms @ 16kHz
+tf.flags.DEFINE_string("filter_sizes", "512", "Comma-separated filter sizes (default: '200')") # 25ms @ 16kHz
 tf.flags.DEFINE_integer("num_filters", 40, "Number of filters per filter size (default: 40)")
 
-tf.flags.DEFINE_integer("window_length", 800, "Window length") # 100+ ms @ 16kHz
-tf.flags.DEFINE_integer("output_length", 32, "Output length") # 50 ms @ 16kHz
+tf.flags.DEFINE_integer("window_length", 768, "Window length") # 100+ ms @ 16kHz
+tf.flags.DEFINE_integer("output_length", 1, "Output length") # 50 ms @ 16kHz
 
 tf.flags.DEFINE_integer("fc_size", 512 , "Fully connected size at the end of the network.")
 tf.flags.DEFINE_integer("decoder_layers", 3 , "Decoder layers.")
 
 tf.flags.DEFINE_float("dropout_keep_prob", 1.0 , "Dropout keep probability")
 
+tf.flags.DEFINE_string("decoder_type", "nn", "Currently supported: decoder type rnn or decoder type nn (only for an output size of 1)")
+
+tf.flags.DEFINE_boolean("decoder_state_add_initial", False, "Adds the initial state of the decoder (the representation the encoder produces) to each decoder step")
+tf.flags.DEFINE_boolean("use_scheduld_sampling", False, "Wether to use the scheduld sampling strategy.")
+
+tf.flags.DEFINE_boolean("batch_normalization", True, "Wether to use batch normalization.")
+
 # Training parameters
 tf.flags.DEFINE_string("filelist", "filelist.track1.english", "Filelist, one wav file per line")
 tf.flags.DEFINE_string("cost_function", "mse", "Type of loss function to use for the model. Can be mse, mase, deriv, e_mse, e_mse_deriv.")
 
-tf.flags.DEFINE_float("l2_regularization_strength", None,"L2 regularization strength for training")
+tf.flags.DEFINE_float("l2_regularization_strength", None, "L2 regularization strength for training, default: no regularization")
+tf.flags.DEFINE_float("learn_rate", 5e-4, "Learn rate for the optimizer")
 
 tf.flags.DEFINE_integer("batch_size", 256, "Batch Size (default: 64)")
 tf.flags.DEFINE_integer("num_epochs", 200, "Number of training epochs (default: 200)")
 
-tf.flags.DEFINE_integer("steps_per_checkpoint", 2000,
+tf.flags.DEFINE_integer("steps_per_checkpoint", 1000,
                                 "How many training steps to do per checkpoint.")
 tf.flags.DEFINE_integer("steps_per_summary", 100,
                                 "How many training steps to do per checkpoint.")
@@ -76,11 +83,12 @@ tf.flags.DEFINE_boolean("log_device_placement", False, "Log placement of ops on 
 tf.flags.DEFINE_boolean("eval", False, "Eval instead of training")
 tf.flags.DEFINE_boolean("show_feat", False, "Display features of the encoder")
 tf.flags.DEFINE_float("temp", 1.0,"Temperature for sampling")
-tf.flags.DEFINE_integer("gen_steps", 1000,"How many (full) prediction steps to do for the generation.")
+tf.flags.DEFINE_integer("gen_steps", 32000,"How many (full) prediction steps to do for the generation.")
 
 tf.flags.DEFINE_boolean("debug", False, "E.g. Smaller training data size")
 
-tf.app.flags.DEFINE_boolean("log_tensorboard", False, "Log training process if this is set to True.")
+tf.app.flags.DEFINE_boolean("log_tensorboard", True, "Log training process if this is set to True.")
+
 
 # Model dir
 tf.flags.DEFINE_string("train_dir", "/srv/data/milde/unspeech_models/", "Training dir to resume training from. If empty, a new one will be created.")
@@ -163,6 +171,12 @@ def pool1d(value, ksize, strides, padding, data_format="NHWC", name=None):
 def lrelu(x, leak=0.2, name="lrelu"):
   return tf.maximum(x, leak*x)
 
+def tensor_normalize_0_to_1(in_tensor):
+    x_min = tf.reduce_min(in_tensor)
+    x_max = tf.reduce_max(in_tensor)
+    tensor_0_to_1 = ((in_tensor - x_min) / (x_max - x_min))
+    return tensor_0_to_1
+
 #https://gist.github.com/awjuliani/fb10d1ea206fab25f946512d959e3894
 def DenseBlock2D(input_layer,filters, layer_num, num_connected, non_linearity=lrelu):
     with tf.variable_scope("dense_unit"+str(layer_num)):
@@ -189,9 +203,9 @@ def DenseTransition2D(l, filters, name, with_conv=True, non_linearity=lrelu):
 #       l = AvgPooling('pool', l, 2)
     return l
 
-def DenseFinal2D(l, name):
+def DenseFinal2D(l, name, pool_size=7):
     with tf.variable_scope(name):
-        l = slim.avg_pool2d(l, [5,5], stride=1)
+        l = slim.avg_pool2d(l, [pool_size,pool_size], stride=1)
     return l
 
 class UnsupSeech(object):
@@ -227,7 +241,7 @@ class UnsupSeech(object):
     def create_training_graphs(self, create_new_train_dir=True, clip_norm=True, max_grad_norm=5.0):
         # Define Training procedure
         self.global_step = tf.Variable(0, name="global_step", trainable=False)
-        self.optimizer = tf.train.AdamOptimizer(1e-4)
+        self.optimizer = tf.train.AdamOptimizer(FLAGS.learn_rate)
 
         #if clip_norm:
         #    tvars = tf.trainable_variables()
@@ -249,16 +263,16 @@ class UnsupSeech(object):
 
         #self.train_op = self.optimizer.minimize(self.cost)
 
-        if FLAGS.log_tensorboard:
-            # Keep track of gradient values and sparsity (optional)
-            grad_summaries = []
-            for g, v in self.grads_and_vars:
-                if g is not None:
-                    grad_hist_summary = tf.summary.histogram("{}/grad/hist".format(v.name), g)
-                    sparsity_summary = tf.summary.scalar("{}/grad/sparsity".format(v.name), tf.nn.zero_fraction(g))
-                    grad_summaries.append(grad_hist_summary)
-                    grad_summaries.append(sparsity_summary)
-            grad_summaries_merged = tf.summary.merge(grad_summaries)
+        #if FLAGS.log_tensorboard:
+        #    # Keep track of gradient values and sparsity (optional)
+        #    grad_summaries = []
+        #    for g, v in self.grads_and_vars:
+        #        if g is not None:
+        #            grad_hist_summary = tf.summary.histogram("{}/grad/hist".format(v.name), g)
+        #            sparsity_summary = tf.summary.scalar("{}/grad/sparsity".format(v.name), tf.nn.zero_fraction(g))
+        #            grad_summaries.append(grad_hist_summary)
+        #            grad_summaries.append(sparsity_summary)
+        #    grad_summaries_merged = tf.summary.merge(grad_summaries)
 
         # Output directory for models and summaries
 
@@ -277,12 +291,9 @@ class UnsupSeech(object):
             self.out_dir = FLAGS.train_dir 
 
         if FLAGS.log_tensorboard:
-            # Summaries for loss and accuracy
-            loss_summary = tf.summary.scalar("loss", self.cost)
-            #acc_summary = tf.scalar_summary("accuracy", self.accuracy)
-
-            # Train Summaries
-            self.train_summary_op = tf.summary.merge([loss_summary, grad_summaries_merged])
+            
+            loss_summary = tf.summary.scalar('loss', self.cost)
+            self.train_summary_op = tf.summary.merge_all()
             train_summary_dir = os.path.join(self.out_dir, "summaries", "train")
 
         # Dev summaries
@@ -376,6 +387,7 @@ class UnsupSeech(object):
                 # 1D conv:
                 # [filter_width, in_channels, out_channels]
 
+                print('Filter size is:', filter_size)
                 #filter_shape = [1 , filter_size, 1, num_filters]
                 filter_shape = [filter_size, 1, num_filters]
                 print('filter_shape:',filter_shape)
@@ -388,6 +400,17 @@ class UnsupSeech(object):
                 #conv = tf.nn.conv2d(input_reshaped,W,strides=[1, 1, 2, 1],padding="VALID",name="conv")
 
                 conv = tf.nn.conv1d(input_reshaped, W, stride=2, padding="VALID",name="conv1")
+
+                with tf.variable_scope('visualization_conv1d'):
+                    # scale weights to [0 1], type is still float
+                    kernel_0_to_1 = tensor_normalize_0_to_1(W) 
+
+                    # to tf.image_summary format [batch_size, height, width, channels]
+                    kernel_transposed = tf.transpose(kernel_0_to_1, [2, 0, 1])
+                    kernel_transposed = tf.expand_dims(kernel_transposed, 0)
+
+                    # this will display random 3 filters from the 64 in conv1
+                    tf.summary.image('conv1d_filters', kernel_transposed) #, max_images=3)
 
                 ## Apply nonlinearity
                 b = tf.Variable(tf.constant(0.01, shape=[num_filters]), name="bias1")
@@ -428,7 +451,7 @@ class UnsupSeech(object):
                     #b2 = tf.Variable(tf.constant(0.01, shape=[num_filters]), name="b2")
 
                     #DenseBlock2D(input_layer,filters, layer_num, num_connected)
-                    with slim.arg_scope([slim.conv2d, slim.fully_connected], normalizer_fn=slim.batch_norm,
+                    with slim.arg_scope([slim.conv2d, slim.fully_connected], normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
                                                 normalizer_params={'is_training': is_training, 'decay': 0.95}):
                         conv = DenseBlock2D(pooled, 10, 2, num_connected=3) #tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
                         pooled = DenseTransition2D(conv, 40, 'transition1') 
@@ -453,10 +476,20 @@ class UnsupSeech(object):
 
                     #self.pooled_outputs.append(pooled)
 
+                #with tf.variable_scope('visualization_embedding'):
+                #    pooled_normalized = tensor_normalize_0_to_1(pooled)
+                #    # tf.image_summary format [batch_size, height, width, channels]
+                #    # example pool shape after dense blocks: (?, 8, 16, 10)
+                #    tf.summary.image('learned_embedding', pooled_normalized, max_outputs=10)  
+
                 flattened_size = int(pooled.get_shape()[1]*pooled.get_shape()[2]*pooled.get_shape()[3])
                 # Reshape conv2 output to fit fully connected layer input
                 self.flattened_pooled = tf.reshape(pooled, [-1, flattened_size])
             
+                with tf.variable_scope('visualization_embedding'):
+                    flattened_pooled_normalized = tensor_normalize_0_to_1(self.flattened_pooled)
+                    tf.summary.image('learned_embedding', tf.reshape(flattened_pooled_normalized,[-1,1,flattened_size,1]), max_outputs=10)
+
                 print('flattened_pooled shape:',self.flattened_pooled.get_shape())
 
                 self.fc1 = self.fully_connected(self.flattened_pooled, flattened_size, fc_size*decoder_layers, name='fc1', use_dropout=False) #is_training)
@@ -505,36 +538,51 @@ class UnsupSeech(object):
                     #    (cell_output, state) = cell(next_input_emb, state)
                     #    logits = tf.matmul(cell_output, softmax_w) + softmax_b
                     #    rnn_outputs.append(logits)
-                    
-                    with tf.variable_scope("decoderRNN"):
-                        for time_step in range(0,output_length):
-                            if time_step > 0: tf.get_variable_scope().reuse_variables()
-                            #print('decoder_inputs shape:',self.decoder_inputs_emb[:,time_step,:].get_shape())
-                            #print('state shape:',state.get_shape())
-                            next_input_emb = self.decoder_inputs_emb[:,time_step,:]
-                            if time_step > 0:
-                                output_symbol = tf.argmax(tf.nn.softmax(logits),1)
-                                # analog to numpys [:,time_step,np.newaxis] => shape is batchsize, 1
-                                teacher_force = tf.expand_dims(self.teacher_forcing[:,time_step], 1)
-                                # Either take the true label of t-1 (teacher forcing), or the argmax of the softmax distribution at timestep t-1, depending on the value in self.teacher_forcing[time_step] 
-                                next_input_emb = tf.multiply(next_input_emb,teacher_force) + tf.multiply(tf.nn.embedding_lookup(embedding, output_symbol), (1.0 - teacher_force))
-                            (cell_output, state) = cell(next_input_emb, state + self.fc1)
-                            logits = tf.matmul(cell_output, softmax_w) + softmax_b        
-                            rnn_outputs.append(logits)
-                            #print('logits shape:',logits.get_shape())
-                            #output_symbols = tf.argmax(tf.nn.softmax(logits),1)
-                            #print('output_symbols shape:', output_symbols.get_shape())
-                            #next_input_emb = tf.nn.embedding_lookup(embedding, output_symbols)
-                            #print('next_input shape:', next_input_emb.get_shape())
+                    print('decoder type is:', FLAGS.decoder_type)
+                    if FLAGS.decoder_type == 'rnn':
+                        with tf.variable_scope("decoderRNN"):
+                            for time_step in range(0,output_length):
+                                if time_step > 0: tf.get_variable_scope().reuse_variables()
+                                #print('decoder_inputs shape:',self.decoder_inputs_emb[:,time_step,:].get_shape())
+                                #print('state shape:',state.get_shape())
+                                next_input_emb = self.decoder_inputs_emb[:,time_step,:]
+                                if time_step > 0:
+                                    output_symbol = tf.argmax(tf.nn.softmax(logits),1)
+                                    # analog to numpys [:,time_step,np.newaxis] => shape is batchsize, 1
+                                    teacher_force = tf.expand_dims(self.teacher_forcing[:,time_step], 1)
+                                    # Either take the true label of t-1 (teacher forcing), or the argmax of the softmax distribution at timestep t-1, depending on the value in self.teacher_forcing[time_step] 
+                                    next_input_emb = tf.multiply(next_input_emb,teacher_force) + tf.multiply(tf.nn.embedding_lookup(embedding, output_symbol), (1.0 - teacher_force))
+                                if FLAGS.decoder_state_add_initial:
+                                    (cell_output, state) = cell(next_input_emb, state + self.initial_state)
+                                else:
+                                    (cell_output, state) = cell(next_input_emb, state)
+                                logits = tf.matmul(cell_output, softmax_w) + softmax_b        
+                                rnn_outputs.append(logits)
+                                #print('logits shape:',logits.get_shape())
+                                #output_symbols = tf.argmax(tf.nn.softmax(logits),1)
+                                #print('output_symbols shape:', output_symbols.get_shape())
+                                #next_input_emb = tf.nn.embedding_lookup(embedding, output_symbols)
+                                #print('next_input shape:', next_input_emb.get_shape())
+                        rnn_output = tf.reshape(tf.concat(axis=1, values=rnn_outputs), [-1, mu])
+                        print('rnn_output shape:',rnn_output.get_shape())
+                        self.out = tf.reshape(tf.argmax(rnn_output,1),[-1, output_length])
+                        print('out shape (argmaxes):',self.out.get_shape())
 
-                   #[self.cell_output_softmax, self.output_state]
+                        ce_cost = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=rnn_output, labels=tf.reshape(self.input_y,[-1]))) / batch_size
+                    elif FLAGS.decoder_type == 'nn':
+                        with tf.variable_scope("nnDecoder"):
+                            if output_length != 1:
+                                print('Output size: ', output_length)
+                                print('The nn decoder only makes sense with an output size of 1. Choose the rnn decoder or set output size to 1. Aborting.')
+                                sys.exit()
+                        output = tf.matmul(self.initial_state, softmax_w) + softmax_b
+                        self.out = tf.reshape([tf.argmax(output,1)], [-1, output_length])
+                        #ce_cost = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=tf.reshape(output, [-1, mu]), labels=tf.reshape(self.input_y,[-1])))
+                        ce_cost = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=tf.reshape(output, [-1, mu]), labels=tf.reshape(self.input_y,[-1])))
+                            
+
+                    #[self.cell_output_softmax, self.output_state]
                    
-                    rnn_output = tf.reshape(tf.concat(axis=1, values=rnn_outputs), [-1, mu])
-                    print('rnn_output shape:',rnn_output.get_shape())
-                    self.out = tf.reshape(tf.argmax(rnn_output,1),[-1, output_length])
-                    print('out shape (argmaxes):',self.out.get_shape())
-
-                    ce_cost = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=rnn_output, labels=tf.reshape(self.input_y,[-1]))) / batch_size
                     ##single RNN step
 
                     if FLAGS.l2_regularization_strength is None:
@@ -562,7 +610,7 @@ class UnsupSeech(object):
                         (rnn_step_cell_output, rnn_step_state) = cell(self.input_symbol_emb[:,0,:], self.input_state)
                         self.cell_output = rnn_step_cell_output
                         self.output_state = rnn_step_state
-                        self.cell_output_logits = tf.matmul(self.cell_output, softmax_w) + softmax_b
+                        self.cell_output_logits = tf.matmul(self.initial_state, softmax_w) + softmax_b
                         self.cell_output_softmax = tf.nn.softmax(self.cell_output_logits)
                 
                 if is_training:
@@ -668,7 +716,7 @@ class UnsupSeech(object):
         print("Generated:",generated)
         return decode_mulaw(undiscretize(generated))
 
-def gen_feat(filelist, sample_data=True):
+def gen_feat(filelist, sample_data=True, generate_challenge_output_feats=True, startpos_sample=20*16000-800):
     filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
     with tf.device('/gpu:1'):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
@@ -683,26 +731,36 @@ def gen_feat(filelist, sample_data=True):
                     model.saver.restore(sess, ckpt.model_checkpoint_path)
                     # model is now loaded with the trained parameters
                     for myfile in filelist:
-                        input_signal = training_data[myfile][20*16000-800:]
-                        if True: #FLAGS.show_feat:
-                            feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, 180)[:500])
-                            pyplot.imshow(feat.T)
-                            pyplot.show()
-                            print(feat)
-                        pre_sig_length = 2000 #1450
-                        gen_signal = input_signal[:pre_sig_length]
-                        print('Generating signal...')
-                        for i in xrange(FLAGS.gen_steps):
-                            next_signal = model.generate_signal(sess, gen_signal[-FLAGS.window_length:], temperature=FLAGS.temp)
-                            #model.gen_next_batch(sess, [gen_signal[-FLAGS.window_length:]])
-                            #input_signal = input_signal[FLAGS.output_length:] + next_signal[0]
-                            if i % 100 == 0:
-                                print(next_signal[0])
-                                print(gen_signal.shape)
-                            gen_signal = np.append(gen_signal,next_signal)
-                        utils.writeSignal(gen_signal, FLAGS.genwav_dir + '/gentest_o'+str(FLAGS.output_length)+'.temp'+str(FLAGS.temp)+'.gen_steps'+str(FLAGS.gen_steps)+'.wav')
-                        print('done!')
-                        break
+
+                        if generate_challenge_output_feats:
+                            input_signal = training_data[myfile]
+                            hop_size = int(float(FLAGS.window_length) / 2.5)
+                            print('Generate features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size)
+                            feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, int(float(FLAGS.window_length) / 2.5)))
+                            utils.writeZeroSpeechFeatFile(feat, myfile.replace('.wav', '') + '.fea')
+
+                        #testing to sample with the data at startpos_sample as warm start
+                        if sample_data:
+                            input_signal = training_data[myfile][startpos_sample:]
+                            if FLAGS.show_feat:
+                                feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, 180)[:500])
+                                pyplot.imshow(feat.T)
+                                pyplot.show()
+                                print(feat)
+                            pre_sig_length = 2000 #1450
+                            gen_signal = input_signal[:pre_sig_length]
+                            print('Generating signal...')
+                            for i in xrange(FLAGS.gen_steps):
+                                next_signal = model.generate_signal(sess, gen_signal[-FLAGS.window_length:], temperature=FLAGS.temp)
+                                #model.gen_next_batch(sess, [gen_signal[-FLAGS.window_length:]])
+                                #input_signal = input_signal[FLAGS.output_length:] + next_signal[0]
+                                if i % 100 == 0:
+                                    print(next_signal[0])
+                                    print(gen_signal.shape)
+                                gen_signal = np.append(gen_signal,next_signal)
+                            utils.writeSignal(gen_signal, FLAGS.genwav_dir + '/gentest_o'+str(FLAGS.output_length)+'.temp'+str(FLAGS.temp)+'.gen_steps'+str(FLAGS.gen_steps)+'.wav')
+                            print('done!')
+                            break
                 else:
                     print("Could not open training dir: %s" % FLAGS.train_dir)
             else:
@@ -746,7 +804,7 @@ def train(filelist):
 
                 if current_step % FLAGS.steps_per_summary == 0 and summary_writer is not None:
                     input_x, input_y, decoder_inputs = model.get_batch(filelist=filelist, input_size=FLAGS.window_length, output_size=FLAGS.output_length, batch_size=FLAGS.batch_size, model = 'post_pred')
-                    summary_str = sess.run(model.train_summary_op, feed_dict={model.input_x:input_x, model.input_y:input_y, model.decoder_inputs: decoder_inputs})
+                    summary_str = sess.run(model.train_summary_op, feed_dict={model.input_x:input_x, model.input_y:input_y, model.decoder_inputs: decoder_inputs, model.teacher_forcing: teacher_force})
                     summary_writer.add_summary(summary_str, current_step)
 
                 # Get a batch and make a step.
@@ -779,8 +837,8 @@ def train(filelist):
                         min_loss = 1e10
                         if len(previous_losses) > 0:
                             min_loss = min(previous_losses)
-                        if 1==1:
-                        #if mean_train_loss < min_loss:
+                        #if 1==1:
+                        if mean_train_loss < min_loss:
                             print(('Train loss: %.6f' % mean_train_loss) + (' is smaller than previous best loss: %.6f' % min_loss) )
                             print('Saving the best model so far to ', model.out_dir, '...')
                             model.saver.save(sess, model.out_dir, global_step=model.global_step)
