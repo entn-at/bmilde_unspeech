@@ -1,5 +1,5 @@
 # Copyright 2016 Benjamin Milde, TU-Darmstadt
-# Copyright 2017 Benjamin Milde
+# Copyright 2017 Benjamin Milde, Universiaet Hamburg
 #
 # Inspired by https://github.com/dennybritz/cnn-text-classification-tf, as it also uses 1-D convolutions
 # and Wavenet, for its idea of sampling audio as a discrete distribution
@@ -30,6 +30,7 @@ import matplotlib
 import matplotlib.pyplot as pyplot
 from experimental_rnn.rnn_cell_mulint_modern import HighwayRNNCell_MulInt, GRUCell_MulInt
 import cwrnn_10 as cwrnn
+import pyplot
 
 import tensorflow.contrib.slim as slim
 from tensorflow.python.ops import control_flow_ops
@@ -388,7 +389,10 @@ class UnsupSeech(object):
                 # [filter_width, in_channels, out_channels]
 
                 print('Filter size is:', filter_size)
+                
+                #this would be the filter for a conv2d:
                 #filter_shape = [1 , filter_size, 1, num_filters]
+                
                 filter_shape = [filter_size, 1, num_filters]
                 print('filter_shape:',filter_shape)
                 W = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.01), name="W")
@@ -443,14 +447,7 @@ class UnsupSeech(object):
                 second_cnn_layer = True
 
                 if second_cnn_layer:
-                    #filter_shape = [5, 5, 1, 40]
-                    #print('filter_shape conv2 2D:',filter_shape)
-
-                    #W2 = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.01), name="W2")
-
-                    #b2 = tf.Variable(tf.constant(0.01, shape=[num_filters]), name="b2")
-
-                    #DenseBlock2D(input_layer,filters, layer_num, num_connected)
+                    
                     with slim.arg_scope([slim.conv2d, slim.fully_connected], normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
                                                 normalizer_params={'is_training': is_training, 'decay': 0.95}):
                         conv = DenseBlock2D(pooled, 10, 2, num_connected=3) #tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
@@ -460,21 +457,8 @@ class UnsupSeech(object):
                         #pooled = DenseTransition2D(conv, 40, 'transition2')
                         pooled = DenseFinal2D(conv, 'dense_end')
 
-                    ## Apply nonlinearity
-                    #b = tf.Variable(tf.constant(0.01, shape=[filter_shape[-1]]), name="bias2")
-                    #conv = tf.nn.tanh(tf.nn.bias_add(conv, b), name="activation2")
-
-                    #pool_input_dim = int(conv.get_shape()[1])
-                    #print('conv2 shape:',conv.get_shape())
-
-                    #pooled = tf.nn.max_pool(conv,ksize=[1, pool_input_dim, 1, 1], # pool over all outputs from previous layer
-                    #                        strides=[1, 1, 1 , 1], # no stride
-                    #                        padding='VALID',name="pool")
-                    #
                     print('pool shape after dense blocks:', pooled.get_shape())
 
-
-                    #self.pooled_outputs.append(pooled)
 
                 #with tf.variable_scope('visualization_embedding'):
                 #    pooled_normalized = tensor_normalize_0_to_1(pooled)
@@ -577,7 +561,6 @@ class UnsupSeech(object):
                                 sys.exit()
                         output = tf.matmul(self.initial_state, softmax_w) + softmax_b
                         self.out = tf.reshape([tf.argmax(output,1)], [-1, output_length])
-                        #ce_cost = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=tf.reshape(output, [-1, mu]), labels=tf.reshape(self.input_y,[-1])))
                         ce_cost = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=tf.reshape(output, [-1, mu]), labels=tf.reshape(self.input_y,[-1])))
                             
 
@@ -618,55 +601,6 @@ class UnsupSeech(object):
 
                 self.saver = tf.train.Saver(tf.global_variables())
 
-                #self.cost = tf.reduce_sum(loss) / batch_size
-
-                # Compressive non-linearity (Speech acoustic modeling from raw multichannel waveforms)
-                #self.fc1 = tf.log(self.fc1 + 0.01)
-
-                #self.energy_cost_reduced = tf.abs(tf.reduce_mean(tf.abs(self.input_y)) - tf.reduce_mean(tf.abs(self.out)) )
-                #energy_cost_factor = 0.15
-
-                # minimize squared error
-                #self.cost = tf.reduce_sum(tf.pow((self.input_y+1.0) - (self.out+1.0), 2) +
-                #        tf.pow((self.input_y-1.0) - (self.out-1.0), 2)) + self.energy_cost_reduced * energy_cost_factor
-
-                #cost_function = 'mse'
-                #self.cost = tf.reduce_mean(tf.pow((self.input_y) - (self.out), 2) + 1.0) + self.energy_cost_reduced
-                #if cost_function == 'mase':
-                #    self.cost = tf.reduce_mean(tf.abs(self.input_y - self.out)) #+ energy_cost_factor*self.energy_cost_reduced
-                #elif cost_function == 'mse':
-                #    self.cost = tf.reduce_mean(tf.pow(self.input_y - self.out, 2))
-                #elif cost_function == 'e_mse':
-               #     self.cost = tf.reduce_mean(tf.pow(self.input_y - self.out, 2)) + energy_cost_factor*self.energy_cost_reduced
-               # elif cost_function == 'deriv':
-               #     paddings_left = [[0,0],[1,0]]
-               #     paddings_right = [[0,0],[0,1]]
-
-               #     deriv_out = tf.pad(self.out, paddings_left, "CONSTANT") - tf.pad(self.out, paddings_right, "CONSTANT")
-               #     deriv_input_y = tf.pad(self.input_y, paddings_left, "CONSTANT") - tf.pad(self.input_y, paddings_right, "CONSTANT")
-
-               #    self.cost = 1.0*tf.reduce_mean(tf.pow(deriv_out - deriv_input_y, 2))
-
-               # elif cost_function == 'mse_deriv':
-               #     paddings_left = [[0,0],[1,0]]
-               #     paddings_right = [[0,0],[0,1]]
-
-               #     deriv_out = tf.pad(self.out, paddings_left, "CONSTANT") - tf.pad(self.out, paddings_right, "CONSTANT")
-               #     deriv_input_y = tf.pad(self.input_y, paddings_left, "CONSTANT") - tf.pad(self.input_y, paddings_right, "CONSTANT")
-
-               #     self.cost = 5.0*tf.reduce_mean(tf.pow(deriv_out - deriv_input_y, 2)) + 1.0*tf.reduce_mean(tf.pow(self.input_y - self.out, 2))
-
-               # elif cost_function == 'e_mse_deriv':
-               #     paddings_left = [[0,0],[1,0]]
-               #     paddings_right = [[0,0],[0,1]]
-
-               #     deriv_out = tf.pad(self.out, paddings_left, "CONSTANT") - tf.pad(self.out, paddings_right, "CONSTANT")
-               #     deriv_input_y = tf.pad(self.input_y, paddings_left, "CONSTANT") - tf.pad(self.input_y, paddings_right, "CONSTANT")
-#
-               #     self.cost = 5.0*tf.reduce_mean(tf.pow(deriv_out - deriv_input_y, 2)) 
-               #     + 1.0*tf.reduce_mean(tf.pow(self.input_y - self.out, 2)) + 2.0*self.energy_cost_reduced
-            #self.nan_checker = tf.add_check_numerics_ops()
-
     def run_rnn_step(self, sess, input_symbol, input_state, batch_size=1):
         data = np.zeros([batch_size, 1], dtype=np.int32)
         for i,symbol in enumerate(input_symbol):
@@ -695,17 +629,17 @@ class UnsupSeech(object):
         feats = sess.run(self.flattened_pooled, feed_dict=feed_dict)
         return feats
 
-    #def gen_next_batch(self, sess, np_signals):
-    #    feed_dict = {self.input_x: np_signals}
-    #    signals = sess.run(self.out, feed_dict=feed_dict)
-    #    return signals
-
-    def generate_signal(self, sess, np_signal, temperature=1.0):
-        feed_dict = {self.input_x: [np_signal]}
+    def generate_signal(self, sess, np_signal, temperature=1.0, mulaw_signal=False):
         state = [self.gen_feat(sess, np_signal)]
         print("np_signal[-1]: ", np_signal[-1])
         print(state)
-        input_symbol = discretize([np_signal[-1]])[0]
+        
+        #only discretize if signal is already in mulaw
+        if mulaw_signal:
+            input_symbol = discretize([np_signal[-1]])[0]
+        else:
+            input_symbol = discretize(encode_mulaw([np_signal[-1]]))[0]
+            
         print("input_symbol: %d" % input_symbol)
         generated = []
         for i in xrange(self.output_length):
@@ -739,14 +673,16 @@ def gen_feat(filelist, sample_data=True, generate_challenge_output_feats=True, s
                             feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, int(float(FLAGS.window_length) / 2.5)))
                             utils.writeZeroSpeechFeatFile(feat, myfile.replace('.wav', '') + '.fea')
 
-                        #testing to sample with the data at startpos_sample as warm start
+                        #testing to sample with the data at startpos_samples as warm start
                         if sample_data:
                             input_signal = training_data[myfile][startpos_sample:]
+                            
                             if FLAGS.show_feat:
                                 feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, 180)[:500])
                                 pyplot.imshow(feat.T)
                                 pyplot.show()
                                 print(feat)
+                                
                             pre_sig_length = 2000 #1450
                             gen_signal = input_signal[:pre_sig_length]
                             print('Generating signal...')
@@ -789,6 +725,10 @@ def train(filelist):
             summary_writer = None
             if FLAGS.log_tensorboard:
                 summary_writer = tf.summary.FileWriter(model.out_dir, sess.graph)
+
+            #write out configuration
+            with open(model.out_dir + '/tf_param_train', 'w') as tf_param_train:
+                tf_param_train.write(get_FLAGS_params_as_str())
 
             train_losses = []
             energy_losses = []
@@ -883,10 +823,12 @@ if __name__ == "__main__":
         signal /= 32768.0
         signal = np.fmax(-1.0,signal)
         signal = np.fmin(1.0,signal)
+        
         #compress dynamic range
         #signal = encode_mulaw(signal)
         #signal /= np.std(signal)
         #signal = (signal-np.mean(signal))/np.std(signal);
+        
         training_data[myfile] = signal
 
     if FLAGS.eval:
