@@ -684,8 +684,8 @@ def gen_feat(filelist, sample_data=True, generate_challenge_output_feats=True, s
                             input_signal = training_data[myfile]
                             hop_size = FLAGS.kaldi_hopsize
                             print('Generate KALDI features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size)
-                            feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size)
-                            utils.writeArkTextFeatFile(feat, FLAGS.output_kaldi_ark, append = not first_file)
+                            feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size))
+                            utils.writeArkTextFeatFile(feat,  myfile.replace('.wav', '') , FLAGS.output_kaldi_ark, not first_file)
 
                         #testing to sample with the data at startpos_samples as warm start
                         if sample_data:
