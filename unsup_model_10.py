@@ -42,14 +42,14 @@ tf.flags.DEFINE_string("filter_sizes", "512", "Comma-separated filter sizes (def
 tf.flags.DEFINE_integer("num_filters", 40, "Number of filters per filter size (default: 40)")
 
 tf.flags.DEFINE_integer("window_length", 768, "Window length") # 100+ ms @ 16kHz
-tf.flags.DEFINE_integer("output_length", 1, "Output length") # 50 ms @ 16kHz
+tf.flags.DEFINE_integer("output_length", 16, "Output length") # 50 ms @ 16kHz
 
-tf.flags.DEFINE_integer("fc_size", 512 , "Fully connected size at the end of the network.")
-tf.flags.DEFINE_integer("decoder_layers", 3 , "Decoder layers.")
+tf.flags.DEFINE_integer("fc_size", 256 , "Fully connected size at the end of the network.")
+tf.flags.DEFINE_integer("decoder_layers", 2 , "Decoder layers.")
 
 tf.flags.DEFINE_float("dropout_keep_prob", 1.0 , "Dropout keep probability")
 
-tf.flags.DEFINE_string("decoder_type", "nn", "Currently supported: decoder type rnn or decoder type nn (only for an output size of 1)")
+tf.flags.DEFINE_string("decoder_type", "rnn", "Currently supported: decoder type rnn or decoder type nn (only for an output size of 1)")
 
 tf.flags.DEFINE_boolean("decoder_state_add_initial", False, "Adds the initial state of the decoder (the representation the encoder produces) to each decoder step")
 tf.flags.DEFINE_boolean("use_scheduld_sampling", False, "Wether to use the scheduld sampling strategy.")

@@ -31,7 +31,7 @@ def loadIdFile(idfile,use_no_files=-1):
         ids = f.read().split('\n')[:use_no_files]
     #check if ids exist
     #ids = [myid for myid in ids if os.path.ispath(myid)]
-    return ids
+    return [myid for myid in ids if myid != '']
 
 def getSignal(utterance):
     spf = wave.open(utterance, 'r')
@@ -39,7 +39,7 @@ def getSignal(utterance):
     signal = np.fromstring(sound_info, 'Int16')
     return signal, spf.getframerate()
 
-def writeSignal(signal, myfile, rate=16000, do_decode_mulaw=True):
+def writeSignal(signal, myfile, rate=16000, do_decode_mulaw=False):
     if do_decode_mulaw:
         signal = decode_mulaw(signal)
     return scipy.io.wavfile.write(myfile, rate, signal)
