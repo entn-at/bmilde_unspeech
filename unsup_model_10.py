@@ -30,7 +30,6 @@ import matplotlib
 import matplotlib.pyplot as pyplot
 from experimental_rnn.rnn_cell_mulint_modern import HighwayRNNCell_MulInt, GRUCell_MulInt
 import cwrnn_10 as cwrnn
-import pyplot
 
 import tensorflow.contrib.slim as slim
 from tensorflow.python.ops import control_flow_ops
@@ -38,6 +37,7 @@ from tensorflow.python.ops import control_flow_ops
 if sys.version_info[0] == 3:
     xrange = range
     
+tf.flags.DEFINE_integer("sample_rate", 16000, "Sample rate of the audio files. Must have the same samplerate for all audio files.") # 100+ ms @ 16kHz
 tf.flags.DEFINE_string("filter_sizes", "512", "Comma-separated filter sizes (default: '200')") # 25ms @ 16kHz
 tf.flags.DEFINE_integer("num_filters", 40, "Number of filters per filter size (default: 40)")
 
@@ -88,8 +88,11 @@ tf.flags.DEFINE_integer("gen_steps", 32000,"How many (full) prediction steps to 
 
 tf.flags.DEFINE_boolean("debug", False, "E.g. Smaller training data size")
 
-tf.app.flags.DEFINE_boolean("log_tensorboard", True, "Log training process if this is set to True.")
+tf.flags.DEFINE_boolean("log_tensorboard", True, "Log training process if this is set to True.")
 
+tf.flags.DEFINE_boolean("generate_kaldi_output_feats", False, "Whether to write out a feature file for Kaldi (containing all utterances), requires a trained model")
+tf.flags.DEFINE_string("output_kaldi_ark", "output_kaldi.ark" , "Output file for Kaldi ark file")
+tf.flags.DEFINE_boolean("generate_challenge_output_feats", False, "Whether to write out a feature file in the unsupervise vhallenge format (containing all utterances), requires a trained model")
 
 # Model dir
 tf.flags.DEFINE_string("train_dir", "/srv/data/milde/unspeech_models/", "Training dir to resume training from. If empty, a new one will be created.")
@@ -610,8 +613,10 @@ class UnsupSeech(object):
                                       self.input_symbol: data})
 
     # do a training step with the supplied input data
-    def step(self, sess, input_x, input_y, decoder_inputs, batch_size, current_step, lambd=0.00004):
-        teacher_force = (np.random.rand(batch_size , self.output_length) < np.exp(-1.0 * lambd * current_step)) * 1.0
+    def step(self, sess, input_x, input_y, decoder_inputs, batch_size, current_step, lambd=0.00004, min_teacher_force=0.5):
+        random_teacher_force_prob = np.exp(-1.0 * lambd * current_step)
+        random_teacher_force_prob = max(random_teacher_force_prob, min_teacher_force)
+        teacher_force = (np.random.rand(batch_size , self.output_length) < random_teacher_force_prob) * 1.0
         feed_dict = {self.input_x: input_x, self.input_y: input_y, self.decoder_inputs: decoder_inputs, self.teacher_forcing: teacher_force}
         _, output, loss = sess.run([self.train_op, self.out, self.cost], feed_dict=feed_dict)
         return  output, loss, teacher_force
@@ -663,15 +668,24 @@ def gen_feat(filelist, sample_data=True, generate_challenge_output_feats=True, s
                 if ckpt and ckpt.model_checkpoint_path:
                     print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
                     model.saver.restore(sess, ckpt.model_checkpoint_path)
+                    first_file = True
                     # model is now loaded with the trained parameters
                     for myfile in filelist:
 
-                        if generate_challenge_output_feats:
+                        if FLAGS.generate_challenge_output_feats:
                             input_signal = training_data[myfile]
                             hop_size = int(float(FLAGS.window_length) / 2.5)
                             print('Generate features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size)
-                            feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, int(float(FLAGS.window_length) / 2.5)))
-                            utils.writeZeroSpeechFeatFile(feat, myfile.replace('.wav', '') + '.fea')
+                            feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size))
+                            utils.writeZeroSpeechFeatFile(feat, myfile.replace('.wav', '') + '.fea', float(FLAGS.window_length)/float(FLAGS.sample_rate), float(hop_size)/float(FLAGS.sample_rate))
+                            first_file = False
+
+                        if FLAGS.generate_kaldi_output_feats:
+                            input_signal = training_data[myfile]
+                            hop_size = FLAGS.kaldi_hopsize
+                            print('Generate KALDI features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size)
+                            feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size)
+                            utils.writeArkTextFeatFile(feat, FLAGS.output_kaldi_ark, append = not first_file)
 
                         #testing to sample with the data at startpos_samples as warm start
                         if sample_data:

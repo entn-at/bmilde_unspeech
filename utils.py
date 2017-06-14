@@ -48,3 +48,17 @@ def rolling_window(a, window_len, hop):
     shape = a.shape[:-1] + (a.shape[-1] - window_len + 1, window_len)
     strides = a.strides + (a.strides[-1],)
     return np.lib.stride_tricks.as_strided(a, shape=shape, strides=strides)[::hop]
+
+def writeArkTextFeatFile(feat, feat_name, out_filename  , append = False):
+    with open(out_filename, 'a' if append else 'w') as out_file:
+        out_file.write(feat_name  + ' [')
+        for feat_vec in feat:
+            feat_vec_str = ' '.join([str(elem) for elem in feat_vec])
+            out_file.write(feat_vec_str)
+    
+def writeZeroSpeechFeatFile(feat, out_filename,window_length, hop_size):
+    with open(out_filename, 'w') as out_file:
+        for i,feat_vec in enumerate(feat):
+            pos = i * hop_size + (window_length / 2.0)
+            feat_vec_str = ' '.join([str(elem) for elem in feat_vec])
+            out_file.write(str(pos) + ' ' + feat_vec_str)
