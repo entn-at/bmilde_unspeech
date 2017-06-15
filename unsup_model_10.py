@@ -1,5 +1,8 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
 # Copyright 2016 Benjamin Milde, TU-Darmstadt
-# Copyright 2017 Benjamin Milde, Universiaet Hamburg
+# Copyright 2017 Benjamin Milde, Universität Hamburg
 #
 # Inspired by https://github.com/dennybritz/cnn-text-classification-tf, as it also uses 1-D convolutions
 # and Wavenet, for its idea of sampling audio as a discrete distribution
@@ -93,6 +96,7 @@ tf.flags.DEFINE_boolean("log_tensorboard", True, "Log training process if this i
 tf.flags.DEFINE_boolean("generate_kaldi_output_feats", False, "Whether to write out a feature file for Kaldi (containing all utterances), requires a trained model")
 tf.flags.DEFINE_string("output_kaldi_ark", "output_kaldi.ark" , "Output file for Kaldi ark file")
 tf.flags.DEFINE_boolean("generate_challenge_output_feats", False, "Whether to write out a feature file in the unsupervise vhallenge format (containing all utterances), requires a trained model")
+tf.flags.DEFINE_string("model_name", "feat1", "Model output name, currently only used for generate_challenge_output_feats")
 
 # Model dir
 tf.flags.DEFINE_string("train_dir", "/srv/data/milde/unspeech_models/", "Training dir to resume training from. If empty, a new one will be created.")
@@ -669,6 +673,12 @@ def gen_feat(filelist, sample_data=True, generate_challenge_output_feats=True, s
                     print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
                     model.saver.restore(sess, ckpt.model_checkpoint_path)
                     first_file = True
+                    
+                    window_length_seconds = float(FLAGS.window_length)/float(FLAGS.sample_rate)
+                    hop_size_seconds = float(FLAGS.hop_size)/float(FLAGS.sample_rate)
+                    
+                    model_params =  '_win' + str(FLAGS.window_length) + '_dec' + FLAGS.decoder_type + '_l' + str(FLAGS.decoder_layers) + '_f' + str(FLAGS.num_filters) + '_fc' +str(FLAGS.fc_size)
+                    
                     # model is now loaded with the trained parameters
                     for myfile in filelist:
 
@@ -677,7 +687,7 @@ def gen_feat(filelist, sample_data=True, generate_challenge_output_feats=True, s
                             hop_size = int(float(FLAGS.window_length) / 2.5)
                             print('Generate features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size)
                             feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size))
-                            utils.writeZeroSpeechFeatFile(feat, myfile.replace('.wav', '') + '.fea', float(FLAGS.window_length)/float(FLAGS.sample_rate), float(hop_size)/float(FLAGS.sample_rate))
+                            utils.writeZeroSpeechFeatFile(feat, myfile.replace('.wav', '').replace('zerospeech2017/','zerospeech2017/'+FLAGS.model_name+model_params) + '.fea', window_length_seconds, hop_size_seconds )
                             first_file = False
 
                         if FLAGS.generate_kaldi_output_feats:
