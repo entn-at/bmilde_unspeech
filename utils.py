@@ -56,9 +56,15 @@ def writeArkTextFeatFile(feat, feat_name, out_filename, append = False):
             feat_vec_str = ' '.join([str(elem) for elem in feat_vec])
             out_file.write(feat_vec_str)
     
+def ensure_dir(file_path):
+    directory = os.path.dirname(file_path)
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
 def writeZeroSpeechFeatFile(feat, out_filename, window_length, hop_size):
+    ensure_dir(out_filename)
     with open(out_filename, 'w') as out_file:
         for i,feat_vec in enumerate(feat):
             pos = i * hop_size + (window_length / 2.0)
             feat_vec_str = ' '.join([str(elem) for elem in feat_vec])
-            out_file.write(str(pos) + ' ' + feat_vec_str)
+            out_file.write(str(pos) + ' ' + feat_vec_str + '\n')
