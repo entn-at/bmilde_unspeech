@@ -41,26 +41,26 @@ if sys.version_info[0] == 3:
     xrange = range
     
 tf.flags.DEFINE_integer("sample_rate", 16000, "Sample rate of the audio files. Must have the same samplerate for all audio files.") # 100+ ms @ 16kHz
-tf.flags.DEFINE_string("filter_sizes", "512", "Comma-separated filter sizes (default: '200')") # 25ms @ 16kHz
+tf.flags.DEFINE_string("filter_sizes", "256", "Comma-separated filter sizes (default: '200')") # 25ms @ 16kHz
 tf.flags.DEFINE_integer("num_filters", 40, "Number of filters per filter size (default: 40)")
 
 tf.flags.DEFINE_integer("window_length", 768, "Window length") # 100+ ms @ 16kHz
-tf.flags.DEFINE_integer("output_length", 16, "Output length") # 50 ms @ 16kHz
+tf.flags.DEFINE_integer("output_length", 1, "Output length") # 50 ms @ 16kHz
 
 tf.flags.DEFINE_integer("fc_size", 256 , "Fully connected size at the end of the network.")
 tf.flags.DEFINE_integer("decoder_layers", 2 , "Decoder layers.")
 
 tf.flags.DEFINE_float("dropout_keep_prob", 1.0 , "Dropout keep probability")
 
-tf.flags.DEFINE_string("decoder_type", "rnn", "Currently supported: decoder type rnn or decoder type nn (only for an output size of 1)")
+tf.flags.DEFINE_string("decoder_type", "nn", "Currently supported: decoder type rnn or decoder type nn (only for an output size of 1)")
 
 tf.flags.DEFINE_boolean("decoder_state_add_initial", False, "Adds the initial state of the decoder (the representation the encoder produces) to each decoder step")
 tf.flags.DEFINE_boolean("use_scheduld_sampling", False, "Wether to use the scheduld sampling strategy.")
 
-tf.flags.DEFINE_boolean("batch_normalization", True, "Wether to use batch normalization.")
+tf.flags.DEFINE_boolean("batch_normalization", False, "Wether to use batch normalization.")
 
 # Training parameters
-tf.flags.DEFINE_string("filelist", "filelist.track1.english", "Filelist, one wav file per line")
+tf.flags.DEFINE_string("filelist", "filelist.english.train", "Filelist, one wav file per line")
 tf.flags.DEFINE_string("cost_function", "mse", "Type of loss function to use for the model. Can be mse, mase, deriv, e_mse, e_mse_deriv.")
 
 tf.flags.DEFINE_float("l2_regularization_strength", None, "L2 regularization strength for training, default: no regularization")
@@ -93,9 +93,11 @@ tf.flags.DEFINE_boolean("debug", False, "E.g. Smaller training data size")
 
 tf.flags.DEFINE_boolean("log_tensorboard", True, "Log training process if this is set to True.")
 
+tf.flags.DEFINE_boolean("generative", False, "Generate signal")
 tf.flags.DEFINE_boolean("generate_kaldi_output_feats", False, "Whether to write out a feature file for Kaldi (containing all utterances), requires a trained model")
 tf.flags.DEFINE_string("output_kaldi_ark", "output_kaldi.ark" , "Output file for Kaldi ark file")
 tf.flags.DEFINE_boolean("generate_challenge_output_feats", False, "Whether to write out a feature file in the unsupervise vhallenge format (containing all utterances), requires a trained model")
+tf.flags.DEFINE_integer("hop_size", 200,"How many training steps to do per checkpoint.")
 tf.flags.DEFINE_string("model_name", "feat1", "Model output name, currently only used for generate_challenge_output_feats")
 
 # Model dir
@@ -539,10 +541,11 @@ class UnsupSeech(object):
                                 next_input_emb = self.decoder_inputs_emb[:,time_step,:]
                                 if time_step > 0:
                                     output_symbol = tf.argmax(tf.nn.softmax(logits),1)
-                                    # analog to numpys [:,time_step,np.newaxis] => shape is batchsize, 1
-                                    teacher_force = tf.expand_dims(self.teacher_forcing[:,time_step], 1)
-                                    # Either take the true label of t-1 (teacher forcing), or the argmax of the softmax distribution at timestep t-1, depending on the value in self.teacher_forcing[time_step] 
-                                    next_input_emb = tf.multiply(next_input_emb,teacher_force) + tf.multiply(tf.nn.embedding_lookup(embedding, output_symbol), (1.0 - teacher_force))
+                                    if FLAGS.use_scheduld_sampling:
+                                        # analog to numpys [:,time_step,np.newaxis] => shape is batchsize, 1
+                                        teacher_force = tf.expand_dims(self.teacher_forcing[:,time_step], 1)
+                                        # Either take the true label of t-1 (teacher forcing), or the argmax of the softmax distribution at timestep t-1, depending on the value in self.teacher_forcing[time_step] 
+                                        next_input_emb = tf.multiply(next_input_emb,teacher_force) + tf.multiply(tf.nn.embedding_lookup(embedding, output_symbol), (1.0 - teacher_force))
                                 if FLAGS.decoder_state_add_initial:
                                     (cell_output, state) = cell(next_input_emb, state + self.initial_state)
                                 else:
@@ -618,9 +621,12 @@ class UnsupSeech(object):
 
     # do a training step with the supplied input data
     def step(self, sess, input_x, input_y, decoder_inputs, batch_size, current_step, lambd=0.00004, min_teacher_force=0.5):
-        random_teacher_force_prob = np.exp(-1.0 * lambd * current_step)
-        random_teacher_force_prob = max(random_teacher_force_prob, min_teacher_force)
-        teacher_force = (np.random.rand(batch_size , self.output_length) < random_teacher_force_prob) * 1.0
+        if FLAGS.use_scheduld_sampling:
+            random_teacher_force_prob = np.exp(-1.0 * lambd * current_step)
+            random_teacher_force_prob = max(random_teacher_force_prob, min_teacher_force)
+            teacher_force = (np.random.rand(batch_size , self.output_length) < random_teacher_force_prob) * 1.0
+        else:
+            teacher_force = np.ones((batch_size, self.output_length))
         feed_dict = {self.input_x: input_x, self.input_y: input_y, self.decoder_inputs: decoder_inputs, self.teacher_forcing: teacher_force}
         _, output, loss = sess.run([self.train_op, self.out, self.cost], feed_dict=feed_dict)
         return  output, loss, teacher_force
@@ -659,7 +665,7 @@ class UnsupSeech(object):
         print("Generated:",generated)
         return decode_mulaw(undiscretize(generated))
 
-def gen_feat(filelist, sample_data=True, generate_challenge_output_feats=True, startpos_sample=20*16000-800):
+def gen_feat(filelist, sample_data=True, generate_challenge_output_feats=False, generate_kaldi_output_feats=False, startpos_sample=20*16000-800):
     filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
     with tf.device('/gpu:1'):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
@@ -675,20 +681,21 @@ def gen_feat(filelist, sample_data=True, generate_challenge_output_feats=True, s
                     first_file = True
                     
                     window_length_seconds = float(FLAGS.window_length)/float(FLAGS.sample_rate)
-                    hop_size_seconds = float(FLAGS.hop_size)/float(FLAGS.sample_rate)
                     
                     model_params =  '_win' + str(FLAGS.window_length) + '_dec' + FLAGS.decoder_type + '_l' + str(FLAGS.decoder_layers) + '_f' + str(FLAGS.num_filters) + '_fc' +str(FLAGS.fc_size)
                     
                     # model is now loaded with the trained parameters
                     for myfile in filelist:
 
-                        if FLAGS.generate_challenge_output_feats:
+                        if generate_challenge_output_feats:
                             input_signal = training_data[myfile]
                             hop_size = int(float(FLAGS.window_length) / 2.5)
                             print('Generate features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size)
+                            hop_size_seconds = float(hop_size)/float(FLAGS.sample_rate)
                             feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size))
-                            utils.writeZeroSpeechFeatFile(feat, myfile.replace('.wav', '').replace('zerospeech2017/','zerospeech2017/'+FLAGS.model_name+model_params) + '.fea', window_length_seconds, hop_size_seconds )
-                            first_file = False
+                            out_filename = myfile.replace('.wav', '').replace('zerospeech2017/','zerospeech2017/'+FLAGS.model_name+model_params+'/') + '.fea'
+                            print('Writing to ', out_filename)
+                            utils.writeZeroSpeechFeatFile(feat, out_filename, window_length_seconds, hop_size_seconds )
 
                         if FLAGS.generate_kaldi_output_feats:
                             input_signal = training_data[myfile]
@@ -696,6 +703,7 @@ def gen_feat(filelist, sample_data=True, generate_challenge_output_feats=True, s
                             print('Generate KALDI features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size)
                             feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size))
                             utils.writeArkTextFeatFile(feat,  myfile.replace('.wav', '') , FLAGS.output_kaldi_ark, not first_file)
+                            first_file = False
 
                         #testing to sample with the data at startpos_samples as warm start
                         if sample_data:
@@ -813,7 +821,7 @@ if __name__ == "__main__":
     FLAGS._parse_flags()
     print("\nParameters:")
     print(get_FLAGS_params_as_str())
-    filelist = utils.loadIdFile(FLAGS.filelist, 300)
+    filelist = utils.loadIdFile(FLAGS.filelist, 3000000)
     print(filelist)
 
     x = np.linspace(-4, 4, 41)
@@ -834,8 +842,9 @@ if __name__ == "__main__":
     time.sleep(5)
 
     if FLAGS.eval:
-        filelist = utils.loadIdFile(FLAGS.filelist, 10)
-        filelist = filelist[-5:]
+        if FLAGS.generative:
+            filelist = utils.loadIdFile(FLAGS.filelist, 10)
+            filelist = filelist[-5:]
     elif FLAGS.debug:
         filelist = filelist[:10]
 
@@ -856,6 +865,9 @@ if __name__ == "__main__":
         training_data[myfile] = signal
 
     if FLAGS.eval:
-        print(gen_feat([filelist[-1]]))
+        if FLAGS.generative:
+            print(gen_feat([filelist[-1]],  sample_data=True, generate_challenge_output_feats=False, generate_kaldi_output_feats=False))
+        else:
+            gen_feat(filelist, False, FLAGS.generate_challenge_output_feats, FLAGS.generate_kaldi_output_feats)
     else:
         train(filelist)
