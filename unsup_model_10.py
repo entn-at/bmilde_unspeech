@@ -738,7 +738,7 @@ def train(filelist):
                 ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
                 if ckpt and ckpt.model_checkpoint_path:
                     print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
-                    model.saver.restore(session, ckpt.model_checkpoint_path)
+                    model.saver.restore(sess, ckpt.model_checkpoint_path)
                     restored = True
                 else:
                     print("Couldn't load parameters from:" + FLAGS.train_dir)
