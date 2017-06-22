@@ -25,10 +25,14 @@ tf.flags.DEFINE_boolean("end_to_end", True, "Use end-to-end learning (Input is 1
 
 tf.flags.DEFINE_integer("window1_length", 768, "First window length, samples or frames") # 100+ ms @ 16kHz
 tf.flags.DEFINE_integer("window2_length", 768, "Second window length, samples or frames") # 100+ ms @ 16kHz
-
 tf.flags.DEFINE_integer("embedding_size", 256 , "Fully connected size at the end of the network.")
 
+tf.flags.DEFINE_integer("negative_samples", 4, "How many negative samples to generate.")
+
 tf.flags.DEFINE_integer("batch_size", 256, "Batch Size (default: 64)")
+
+tf.flags.DEFINE_float("dropout_keep_prob", 1.0 , "Dropout keep probability")
+
 
 tf.flags.DEFINE_integer("steps_per_checkpoint", 1000,
                                 "How many training steps to do per checkpoint.")
@@ -233,7 +237,11 @@ class UnsupSeech(object):
         # window 2 is either consecutive, or randomly sampled
         self.input_window_2 = tf.placeholder(tf.float32, [None, window_size_2], name="input_window_2")
         
+        self.labels = tf.placeholder(tf.float32, [None, 1], name="labels")
+        
         with tf.variable_scope("unsupmodel"):
+            # a list of embeddings to use for the binary classifier (the embeddings are combined)
+            self.outs = []
             with tf.variable_scope("embedding-transform"):
                 for i,input_window in enumerate([self.input_window_1, self.input_window_2]):
                     if i > 0: tf.get_variable_scope().reuse_variables()
@@ -336,5 +344,125 @@ class UnsupSeech(object):
     
                     print('flattened_pooled shape:',self.flattened_pooled.get_shape())
     
-                    self.fc1 = self.fully_connected(self.flattened_pooled, flattened_size, fc_size, name='fc1', use_dropout=False) #is_training)
+                    self.fc1 = slim.fully_connected(self.flattened_pooled, fc_size, activation_fn=lrelu) #is_training)
                     print('fc1 shape:',self.fc1.get_shape())
+                    self.outs.append(self.fc1)
+                    
+                stacked = np.concat(self.outs, 1)
+                print('stacked shape:',stacked.get_shape())
+                    
+                self.out = slim.fully_connected(stacked, fc_size, activation_fn=lrelu)
+                
+                self.cost(tf.nn.sigmoid_cross_entropy_with_logits(labels=self.labels, logits=self.out))
+                    
+    # do a training step with the supplied input data
+    def step(self, sess, input_window_1, input_window_2, labels):
+        feed_dict = {self.input_window_1: input_window_1, self.input_window_2: input_window_2, self.labels: labels}
+        _, output, loss = sess.run([self.train_op, self.out, self.cost], feed_dict=feed_dict)
+        return  output, loss
+    
+def train(filelist):
+    filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
+    with tf.device('/gpu:1'):
+        with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
+            model = UnsupSeech(window_size_1=FLAGS.window1_length, window_size_2=FLAGS.window2_length, filter_sizes=filter_sizes, 
+                                num_filters=FLAGS.num_filters, fc_size=FLAGS.embedding_size, dropout_keep_prob=FLAGS.dropout_keep_prob, train_files = filelist, cost_function=FLAGS.cost_function, batch_size=FLAGS.batch_size, decoder_layers=FLAGS.decoder_layers)
+            
+            restored = False
+            if FLAGS.train_dir != "":
+                ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
+                if ckpt and ckpt.model_checkpoint_path:
+                    print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
+                    model.saver.restore(sess, ckpt.model_checkpoint_path)
+                    restored = True
+                else:
+                    print("Couldn't load parameters from:" + FLAGS.train_dir)
+            if not restored:
+                print("Created model with fresh parameters.")
+                sess.run(tf.global_variables_initializer())
+
+            summary_writer = None
+            if FLAGS.log_tensorboard:
+                summary_writer = tf.summary.FileWriter(model.out_dir, sess.graph)
+
+            #write out configuration
+            with open(model.out_dir + '/tf_param_train', 'w') as tf_param_train:
+                tf_param_train.write(get_FLAGS_params_as_str())
+
+            train_losses = []
+
+            step_time = 0.0
+            current_step = 0
+            checkpoint_step = 0
+            previous_losses = []
+            input_window_1, input_window_2 = None, None
+
+            while True:
+                current_step += 1
+
+                if current_step % FLAGS.steps_per_summary == 0 and summary_writer is not None:
+                    input_window_1, input_window_2, decoder_inputs = model.get_batch_k_samples(filelist=filelist, window_size_1=FLAGS.window1_length, window_size_2=FLAGS.window2_length, k=FLAGS.negative_samples)
+                    summary_str = sess.run(model.train_summary_op, feed_dict={model.input_window_1:input_window_1, model.input_window_2:input_window_2, model.decoder_inputs: decoder_inputs})
+                    summary_writer.add_summary(summary_str, current_step)
+
+                # Get a batch and make a step.
+                start_time = time.time()
+                input_window_1, input_window_2, labels = model.get_batch_k_samples(filelist=filelist, window_size_1=FLAGS.window1_length, window_size_2=FLAGS.window2_length, k=FLAGS.negative_samples)
+                out, train_loss = model.step(sess, input_window_1, input_window_2)
+                train_losses.append(train_loss)
+
+                step_time += (time.time() - start_time) / FLAGS.steps_per_checkpoint
+                
+                # Once in a while, we save checkpoint, print statistics, and run evals.
+                if current_step % FLAGS.steps_per_checkpoint == 0:
+                    checkpoint_step += 1
+                    mean_train_loss = np.mean(train_losses)
+
+                    print('input_window_1:', input_window_1[0])
+                    print('input_window_2:', input_window_2[0])
+                    print('out:', out[0])
+                    print('At step %i step-time %.4f loss %.4f' % (current_step, step_time, mean_train_loss))
+                    
+                    train_losses = []
+                    step_time = 0
+                    if checkpoint_step % FLAGS.checkpoints_per_save == 0:
+                        min_loss = 1e10
+                        if len(previous_losses) > 0:
+                            min_loss = min(previous_losses)
+                        if mean_train_loss < min_loss:
+                            print(('Train loss: %.6f' % mean_train_loss) + (' is smaller than previous best loss: %.6f' % min_loss) )
+                            print('Saving the best model so far to ', model.out_dir, '...')
+                            model.saver.save(sess, model.out_dir, global_step=model.global_step)
+                            previous_losses.append(mean_train_loss)
+
+
+if __name__ == "__main__":
+    FLAGS._parse_flags()
+    print("\nParameters:")
+    print(get_FLAGS_params_as_str())
+    filelist = utils.loadIdFile(FLAGS.filelist, 3000000)
+    print(filelist)
+
+    print('continuing training in 5 seconds...')
+    time.sleep(5)
+
+    if FLAGS.eval:
+        if FLAGS.generative:
+            filelist = utils.loadIdFile(FLAGS.filelist, 10)
+            filelist = filelist[-5:]
+    elif FLAGS.debug:
+        filelist = filelist[:10]
+
+    for myfile in filelist:
+#    for myfile in [filelist[-1]]:   
+        print('Loading:',myfile)
+        signal = np.float32(utils.getSignal(myfile)[0])
+        #convert and clip to -1.0 - 1.0 range
+        signal /= 32768.0
+        signal = np.fmax(-1.0,signal)
+        signal = np.fmin(1.0,signal)
+        
+        training_data[myfile] = signal
+    
+    #todo add eval and writing out features
+    train(filelist)
