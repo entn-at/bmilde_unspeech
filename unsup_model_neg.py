@@ -32,7 +32,9 @@ tf.flags.DEFINE_integer("window1_length", 1024, "First window length, samples or
 tf.flags.DEFINE_integer("window2_length", 1024, "Second window length, samples or frames") # 100+ ms @ 16kHz
 tf.flags.DEFINE_integer("embedding_size", 256 , "Fully connected size at the end of the network.")
 
-tf.flags.DEFINE_boolean("with_dense_network", True,  "Whether to use a dense conv network for the embeddings computation.")
+tf.flags.DEFINE_boolean("with_vgg16", True, "Whether to use a vgg16 network for the embeddings computation.")
+tf.flags.DEFINE_boolean("with_dense_network", False,  "Whether to use a dense conv network for the embeddings computation.")
+
 tf.flags.DEFINE_integer("dense_block_filters", 5,  "Number of filters inside a conv2d in a dense block.")
 tf.flags.DEFINE_integer("dense_block_layers_connected", 3,  "Number of layers inside dense block.")
 tf.flags.DEFINE_integer("dense_block_filters_transition", 4, "Number of filters inside a conv2d in a dense block transition.")
@@ -109,10 +111,10 @@ def lrelu(x, leak=0.2, name="lrelu"):
 def DenseBlock2D(input_layer,filters, layer_num, num_connected, non_linearity=lrelu):
     with tf.variable_scope("dense_unit"+str(layer_num)):
         nodes = []
-        a = slim.conv2d(input_layer,filters,[3,3], activation_fn=non_linearity, weights_initializer=tf.contrib.layers.variance_scaling_initializer(), biases_initializer = tf.constant_initializer(0.1))
+        a = slim.conv2d(input_layer,filters,[3,3], activation_fn=non_linearity, weights_initializer=tf.contrib.layers.variance_scaling_initializer(), biases_initializer = tf.constant_initializer(0.01))
         nodes.append(a)
         for z in range(num_connected):
-            b = slim.conv2d(tf.concat(nodes,3),filters,[3,3], activation_fn=non_linearity, weights_initializer=tf.contrib.layers.variance_scaling_initializer(), biases_initializer = tf.constant_initializer(0.1))
+            b = slim.conv2d(tf.concat(nodes,3),filters,[3,3], activation_fn=non_linearity, weights_initializer=tf.contrib.layers.variance_scaling_initializer(), biases_initializer = tf.constant_initializer(0.01))
             nodes.append(b)
         return b
 
@@ -120,7 +122,7 @@ def DenseBlock2D(input_layer,filters, layer_num, num_connected, non_linearity=lr
 def DenseTransition2D(l, filters, name, with_conv=True, non_linearity=lrelu):
     with tf.variable_scope(name):
         if with_conv:
-            l = slim.conv2d(l,filters,[3,3], activation_fn=non_linearity, weights_initializer=tf.contrib.layers.variance_scaling_initializer(), biases_initializer = tf.constant_initializer(0.1))
+            l = slim.conv2d(l,filters,[3,3], activation_fn=non_linearity, weights_initializer=tf.contrib.layers.variance_scaling_initializer(), biases_initializer = tf.constant_initializer(0.01))
         l = slim.avg_pool2d(l, [2,2])
     return l
 
@@ -129,6 +131,29 @@ def DenseFinal2D(l, name, pool_size=7):
         l = slim.avg_pool2d(l, [pool_size,pool_size], stride=1)
     return l
 
+#from https://github.com/tensorflow/tensorflow/tree/r1.2/tensorflow/contrib/slim
+def vgg16(inputs):
+  with slim.arg_scope([slim.conv2d, slim.fully_connected],
+                      activation_fn=tf.nn.lrelu,
+                      weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
+                      weights_regularizer=slim.l2_regularizer(0.0005),
+                      biases_initializer = tf.constant_initializer(0.01)):
+    net = slim.repeat(inputs, 2, slim.conv2d, 64, [3, 3], scope='conv1')
+    net = slim.max_pool2d(net, [2, 2], scope='pool1')
+    net = slim.repeat(net, 2, slim.conv2d, 128, [3, 3], scope='conv2')
+    net = slim.max_pool2d(net, [2, 2], scope='pool2')
+    net = slim.repeat(net, 3, slim.conv2d, 256, [3, 3], scope='conv3')
+    net = slim.max_pool2d(net, [2, 2], scope='pool3')
+    net = slim.repeat(net, 3, slim.conv2d, 512, [3, 3], scope='conv4')
+    net = slim.max_pool2d(net, [2, 2], scope='pool4')
+    net = slim.repeat(net, 3, slim.conv2d, 512, [3, 3], scope='conv5')
+    net = slim.max_pool2d(net, [2, 2], scope='pool5')
+    net = slim.fully_connected(net, 1024, scope='fc6')
+    #net = slim.dropout(net, 0.5, scope='dropout6')
+    net = slim.fully_connected(net, 256, scope='fc7')
+    #net = slim.dropout(net, 0.5, scope='dropout7')
+    #net = slim.fully_connected(net, 1000, activation_fn=None, scope='fc8')
+  return net
 
 class UnsupSeech(object):
     """
@@ -340,6 +365,7 @@ class UnsupSeech(object):
                     #filter shape: filter_height, filter_width, in_channels, out_channels
                     #('pool1 shape:', TensorShape([Dimension(None), Dimension(1), Dimension(7), Dimension(80)]))
         
+                    needs_flattening = True
                     if FLAGS.with_dense_network:
                         
                         with slim.arg_scope([slim.conv2d, slim.fully_connected], weights_initializer=tf.truncated_normal_initializer(stddev=0.01), normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
@@ -355,10 +381,14 @@ class UnsupSeech(object):
     
                         print('pool shape after dense blocks:', pooled.get_shape())
     
+                    if FLAGS.with_vgg16:
+                        self.flattened_pooled = vgg16(pooled)
+                        needs_flattening = False
     
-                    flattened_size = int(pooled.get_shape()[1]*pooled.get_shape()[2]*pooled.get_shape()[3])
-                    # Reshape conv2 output to fit fully connected layer input
-                    self.flattened_pooled = tf.reshape(pooled, [-1, flattened_size])
+                    if needs_flattening:
+                        flattened_size = int(pooled.get_shape()[1]*pooled.get_shape()[2]*pooled.get_shape()[3])
+                        # Reshape conv2 output to fit fully connected layer input
+                        self.flattened_pooled = tf.reshape(pooled, [-1, flattened_size])
                 
                     with tf.variable_scope('visualization_embedding'):
                         flattened_pooled_normalized = utils.tensor_normalize_0_to_1(self.flattened_pooled)
