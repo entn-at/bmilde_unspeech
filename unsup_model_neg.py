@@ -515,9 +515,13 @@ def train(filelist):
                     labels_flat = np.reshape(labels,[-1])
                     out_flat = (np.reshape(out,[-1]) > 0.5) * 1.0
                     out_flat_zero = np.zeros_like(labels_flat)
-                    print('len', labels_len, out_len)
+                    
+                    print('np.bincount:', np.bincount(out_flat))
+                    print('len:', labels_len, out_len)
                     print('true labels, out (first 40 dims):', list(zip(labels_flat,out_flat))[:60])
                     print('accuracy:', accuracy_score(labels, out_flat))
+                    print('majority class accuracy:', accuracy_score(labels, out_flat_zero))
+                    
                     print('At step %i step-time %.4f loss %.4f' % (current_step, step_time, mean_train_loss))
                     
                     train_losses = []
