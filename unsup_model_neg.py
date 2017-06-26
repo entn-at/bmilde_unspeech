@@ -32,6 +32,7 @@ tf.flags.DEFINE_integer("window1_length", 768, "First window length, samples or 
 tf.flags.DEFINE_integer("window2_length", 768, "Second window length, samples or frames") # 100+ ms @ 16kHz
 tf.flags.DEFINE_integer("embedding_size", 256 , "Fully connected size at the end of the network.")
 tf.flags.DEFINE_integer("dense_block_layers_inside", 5,  "Number of layers inside dense block.")
+tf.flags.DEFINE_boolean("tied_embeddings_transforms", False, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
 
 tf.flags.DEFINE_integer("negative_samples", 4, "How many negative samples to generate.")
 
@@ -112,17 +113,10 @@ def DenseBlock2D(input_layer,filters, layer_num, num_connected, non_linearity=lr
 
 #https://github.com/YixuanLi/densenet-tensorflow/blob/master/cifar10-densenet.py
 def DenseTransition2D(l, filters, name, with_conv=True, non_linearity=lrelu):
-    shape = l.get_shape().as_list()
-    in_channel = shape[3]
     with tf.variable_scope(name):
         if with_conv:
             l = slim.conv2d(l,filters,[3,3], activation_fn=non_linearity)
         l = slim.avg_pool2d(l, [2,2])
-    #with tf.variable_scope(name) as scope:
-    #   l = BatchNorm('bn1', l)
-#       l = lrelu(l)
-#       l = Conv2D('conv1', l, in_channel, 1, stride=1, use_bias=False, nl=non_linearity)
-#       l = AvgPooling('pool', l, 2)
     return l
 
 def DenseFinal2D(l, name, pool_size=7):
@@ -142,21 +136,24 @@ class UnsupSeech(object):
         self.global_step = tf.Variable(0, name="global_step", trainable=False)
         self.optimizer = tf.train.AdamOptimizer(FLAGS.learn_rate)                
         
-        self.train_op = slim.learning.create_train_op(self.cost, self.optimizer, global_step=self.global_step)
         self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 
         if self.update_ops:
             print('Will add update_ops dependency ...')
             updates = tf.group(*self.update_ops)
-            cross_entropy = control_flow_ops.with_dependencies([updates], self.cost)
-        
+            self.opt_cost = control_flow_ops.with_dependencies([updates], self.cost)
+        else:
+            self.opt_cost = self.cost
+            
+        self.train_op = slim.learning.create_train_op(self.opt_cost, self.optimizer, global_step=self.global_step)
+
         if create_new_train_dir:
             timestamp = str(int(time.time()))
             self.out_dir = os.path.abspath(os.path.join(FLAGS.train_dir, "runs", timestamp)) + '/' + 'tf10'
             print("Writing to {}\n".format(self.out_dir))
             # Checkpoint directory. Tensorflow assumes this directory already exists so we need to create it
             checkpoint_dir = os.path.abspath(os.path.join(self.out_dir, "checkpoints"))
-            checkpoint_prefix = os.path.join(checkpoint_dir, "model")
+            #checkpoint_prefix = os.path.join(checkpoint_dir, "model")
             if not os.path.exists(checkpoint_dir):
                 os.makedirs(checkpoint_dir)
             with open(self.out_dir + 'params','w') as param_file:
@@ -207,6 +204,10 @@ class UnsupSeech(object):
 
         labels = np.asarray(labels).reshape(-1,1)
 
+        if self.first_call_to_get_batch:
+            print("window1_batch,",window1_batch,"window2_batch,",window2_batch,"labels",labels) 
+            self.first_call_to_get_batch = False
+
         return window1_batch,window2_batch,labels
      
     # similar to get_batch_k_samples, but with true_context_window2_probability we select either two neighbooring pairs or two random audio snippets
@@ -251,12 +252,14 @@ class UnsupSeech(object):
         
         self.labels = tf.placeholder(tf.float32, [None, 1], name="labels")
         
+        self.first_call_to_get_batch = True
+        
         with tf.variable_scope("unsupmodel"):
             # a list of embeddings to use for the binary classifier (the embeddings are combined)
             self.outs = []
             with tf.variable_scope("embedding-transform"):
                 for i,input_window in enumerate([self.input_window_1, self.input_window_2]):
-                    if i > 0: tf.get_variable_scope().reuse_variables()
+                    if FLAGS.tied_embeddings_transforms and i > 0: tf.get_variable_scope().reuse_variables()
                     #input_reshaped = tf.reshape(self.input_x, [-1, 1, window_length, 1])
                     window_length = int(input_window.get_shape()[1])
                     input_reshaped = tf.reshape(input_window, [-1, window_length, 1])
@@ -304,7 +307,7 @@ class UnsupSeech(object):
     
                     ## Apply nonlinearity
                     b = tf.Variable(tf.constant(0.01, shape=[num_filters]), name="bias1")
-                    conv = tf.nn.tanh(tf.nn.bias_add(conv, b), name="activation1")
+                    conv = lrelu(tf.nn.bias_add(conv, b), name="activation1")
     
                     pool_input_dim = int(conv.get_shape()[1])
     
@@ -335,7 +338,7 @@ class UnsupSeech(object):
                     if second_cnn_layer:
                         
                         with slim.arg_scope([slim.conv2d, slim.fully_connected], normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
-                                                    normalizer_params={'is_training': is_training, 'decay': 0.95}):
+                                                    normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
                             conv = DenseBlock2D(pooled, 5, 2, num_connected=3) #tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
                             pooled = DenseTransition2D(conv, 40, 'transition1') 
                             
@@ -410,7 +413,7 @@ def train(filelist):
             current_step = 0
             checkpoint_step = 0
             previous_losses = []
-            input_window_1, input_window_2 = None, None
+            input_window_1, input_window_2, labels = None, None, None
 
             while True:
                 current_step += 1
@@ -435,7 +438,7 @@ def train(filelist):
 
                     print('input_window_1:', input_window_1[0])
                     print('input_window_2:', input_window_2[0])
-                    print('out:', out[0])
+                    #print('out:', out[0])
                     print('At step %i step-time %.4f loss %.4f' % (current_step, step_time, mean_train_loss))
                     
                     train_losses = []
