@@ -415,7 +415,7 @@ class UnsupSeech(object):
                                             normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
                             self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*2, activation_fn=tf.nn.relu)
                             self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*2, activation_fn=tf.nn.relu)
-                            self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*2, activation_fn=tf.nn.relu)
+                            #self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*2, activation_fn=tf.nn.relu)
                         
                 
                     #with tf.variable_scope('visualization_embedding'):
@@ -424,14 +424,14 @@ class UnsupSeech(object):
     
                     print('flattened_pooled shape:',self.flattened_pooled.get_shape())
     
-                    self.fc1 = slim.fully_connected(self.flattened_pooled, fc_size, activation_fn=tf.nn.relu, weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
+                    self.fc1 = slim.fully_connected(self.flattened_pooled, fc_size, activation_fn=tf.nn.relu, weights_initializer=tf.truncated_normal_initializer(0.0, 0.01))#weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
                     print('fc1 shape:',self.fc1.get_shape())
                     self.outs.append(self.fc1)
                     
             stacked = tf.concat(self.outs, 1)
             print('stacked shape:',stacked.get_shape())
                 
-            self.out = slim.fully_connected(stacked, 1, activation_fn=tf.nn.sigmoid, weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
+            self.out = slim.fully_connected(stacked, 1, activation_fn=tf.nn.sigmoid, weights_initializer=tf.truncated_normal_initializer(0.0, 0.01))#weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
             self.cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=self.labels, logits=self.out))
     
             if is_training:
