@@ -299,10 +299,10 @@ class UnsupSeech(object):
         
         self.first_call_to_get_batch = True
         
-        with slim.arg_scope([slim.conv2d, slim.fully_connected],  tf.truncated_normal_initializer(stddev=0.01)):
+        with slim.arg_scope([slim.conv2d, slim.fully_connected],  tf.truncated_normal_initializer(stddev=0.01),
                                             #weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
                                             #weights_regularizer=slim.l2_regularizer(0.0005),
-                                            #biases_initializer = tf.constant_initializer(0.01) if not FLAGS.batch_normalization else None,
+                                            biases_initializer = tf.constant_initializer(0.01) if not FLAGS.batch_normalization else None):
                                             #normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
                                             #normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
             with tf.variable_scope("unsupmodel"):
