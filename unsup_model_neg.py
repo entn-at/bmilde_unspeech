@@ -33,13 +33,13 @@ tf.flags.DEFINE_integer("window2_length", 1024, "Second window length, samples o
 tf.flags.DEFINE_integer("embedding_size", 256 , "Fully connected size at the end of the network.")
 
 tf.flags.DEFINE_boolean("with_dense_network", False,  "Whether to use a dense conv network for the embeddings computation.")
-tf.flags.DEFINE_integer("dense_block_filters", 10,  "Number of filters inside a conv2d in a dense block.")
-tf.flags.DEFINE_integer("dense_block_layers_connected", 1,  "Number of layers inside dense block.")
-tf.flags.DEFINE_integer("dense_block_filters_transition", 10, "Number of filters inside a conv2d in a dense block transition.")
+tf.flags.DEFINE_integer("dense_block_filters", 20,  "Number of filters inside a conv2d in a dense block.")
+tf.flags.DEFINE_integer("dense_block_layers_connected", 3,  "Number of layers inside dense block.")
+tf.flags.DEFINE_integer("dense_block_filters_transition", 8, "Number of filters inside a conv2d in a dense block transition.")
 
 tf.flags.DEFINE_boolean("tied_embeddings_transforms", True, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
 
-tf.flags.DEFINE_integer("negative_samples", 2, "How many negative samples to generate.")
+tf.flags.DEFINE_integer("negative_samples", 5, "How many negative samples to generate.")
 
 tf.flags.DEFINE_integer("batch_size", 256, "Batch Size (default: 64)")
 tf.flags.DEFINE_boolean("batch_normalization", False, "Whether to use batch normalization.")
@@ -57,7 +57,7 @@ tf.flags.DEFINE_integer("checkpoints_per_save", 1,
 tf.flags.DEFINE_boolean("allow_soft_placement", True, "Allow device soft device placement")
 tf.flags.DEFINE_boolean("log_device_placement", False, "Log placement of ops on devices")
 
-tf.flags.DEFINE_float("learn_rate", 5e-4, "Learn rate for the optimizer")
+tf.flags.DEFINE_float("learn_rate", 8e-4, "Learn rate for the optimizer")
 
 tf.flags.DEFINE_boolean("log_tensorboard", True, "Log training process if this is set to True.")
 
