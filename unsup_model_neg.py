@@ -47,7 +47,7 @@ tf.flags.DEFINE_boolean("tied_embeddings_transforms", True, "Whether the transfo
 
 tf.flags.DEFINE_integer("negative_samples", 2, "How many negative samples to generate.")
 
-tf.flags.DEFINE_integer("batch_size", 256, "Batch Size (default: 64)")
+tf.flags.DEFINE_integer("batch_size", 64, "Batch Size (default: 64)")
 tf.flags.DEFINE_boolean("batch_normalization", False, "Whether to use batch normalization.")
 
 tf.flags.DEFINE_float("dropout_keep_prob", 1.0 , "Dropout keep probability")
