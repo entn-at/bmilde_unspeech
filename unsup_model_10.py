@@ -191,10 +191,10 @@ def tensor_normalize_0_to_1(in_tensor):
 def DenseBlock2D(input_layer,filters, layer_num, num_connected, non_linearity=lrelu):
     with tf.variable_scope("dense_unit"+str(layer_num)):
         nodes = []
-        a = slim.conv2d(input_layer,filters,[3,3], activation_fn=non_linearity, weights_initializer=tf.contrib.layers.variance_scaling_initializer(), bias_initializer = tf.constant_initializer(0.1))
+        a = slim.conv2d(input_layer,filters,[3,3], activation_fn=non_linearity, weights_initializer=tf.contrib.layers.variance_scaling_initializer(), biases_initializer = tf.constant_initializer(0.1))
         nodes.append(a)
         for z in range(num_connected):
-            b = slim.conv2d(tf.concat(nodes,3),filters,[3,3], activation_fn=non_linearity, weights_initializer=tf.contrib.layers.variance_scaling_initializer(), bias_initializer = tf.constant_initializer(0.1))
+            b = slim.conv2d(tf.concat(nodes,3),filters,[3,3], activation_fn=non_linearity, weights_initializer=tf.contrib.layers.variance_scaling_initializer(), biases_initializer = tf.constant_initializer(0.1))
             nodes.append(b)
         return b
 
