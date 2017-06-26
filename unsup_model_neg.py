@@ -31,6 +31,8 @@ tf.flags.DEFINE_integer("num_filters", 40, "Number of filters per filter size (d
 tf.flags.DEFINE_integer("window1_length", 1024, "First window length, samples or frames") # 100+ ms @ 16kHz
 tf.flags.DEFINE_integer("window2_length", 1024, "Second window length, samples or frames") # 100+ ms @ 16kHz
 tf.flags.DEFINE_integer("embedding_size", 256 , "Fully connected size at the end of the network.")
+
+tf.flags.DEFINE_boolean("with_dense_network", False,  "Whether to use a dense conv network for the embeddings computation.")
 tf.flags.DEFINE_integer("dense_block_filters", 3,  "Number of filters inside a conv2d in a dense block.")
 tf.flags.DEFINE_integer("dense_block_layers_connected", 3,  "Number of layers inside dense block.")
 tf.flags.DEFINE_integer("dense_block_filters_transition", 10, "Number of filters inside a conv2d in a dense block transition.")
@@ -335,10 +337,8 @@ class UnsupSeech(object):
                     #input shape: batch, in_height, in_width, in_channels
                     #filter shape: filter_height, filter_width, in_channels, out_channels
                     #('pool1 shape:', TensorShape([Dimension(None), Dimension(1), Dimension(7), Dimension(80)]))
-    
-                    second_cnn_layer = True
-    
-                    if second_cnn_layer:
+        
+                    if FLAGS.with_dense_network:
                         
                         with slim.arg_scope([slim.conv2d, slim.fully_connected], weights_initializer=tf.truncated_normal_initializer(stddev=0.01), normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
                                                     normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
