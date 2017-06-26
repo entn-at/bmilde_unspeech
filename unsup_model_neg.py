@@ -33,8 +33,8 @@ tf.flags.DEFINE_integer("window2_length", 1024, "Second window length, samples o
 tf.flags.DEFINE_integer("embedding_size", 256 , "Fully connected size at the end of the network.")
 
 tf.flags.DEFINE_boolean("with_dense_network", False,  "Whether to use a dense conv network for the embeddings computation.")
-tf.flags.DEFINE_integer("dense_block_filters", 3,  "Number of filters inside a conv2d in a dense block.")
-tf.flags.DEFINE_integer("dense_block_layers_connected", 3,  "Number of layers inside dense block.")
+tf.flags.DEFINE_integer("dense_block_filters", 10,  "Number of filters inside a conv2d in a dense block.")
+tf.flags.DEFINE_integer("dense_block_layers_connected", 1,  "Number of layers inside dense block.")
 tf.flags.DEFINE_integer("dense_block_filters_transition", 10, "Number of filters inside a conv2d in a dense block transition.")
 
 tf.flags.DEFINE_boolean("tied_embeddings_transforms", True, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
@@ -42,10 +42,9 @@ tf.flags.DEFINE_boolean("tied_embeddings_transforms", True, "Whether the transfo
 tf.flags.DEFINE_integer("negative_samples", 2, "How many negative samples to generate.")
 
 tf.flags.DEFINE_integer("batch_size", 256, "Batch Size (default: 64)")
-tf.flags.DEFINE_boolean("batch_normalization", False, "Wether to use batch normalization.")
+tf.flags.DEFINE_boolean("batch_normalization", False, "Whether to use batch normalization.")
 
 tf.flags.DEFINE_float("dropout_keep_prob", 1.0 , "Dropout keep probability")
-
 
 tf.flags.DEFINE_integer("steps_per_checkpoint", 300,
                                 "How many training steps to do per checkpoint.")
@@ -264,7 +263,9 @@ class UnsupSeech(object):
             self.outs = []
             with tf.variable_scope("embedding-transform"):
                 for i,input_window in enumerate([self.input_window_1, self.input_window_2]):
-                    if FLAGS.tied_embeddings_transforms and i > 0: tf.get_variable_scope().reuse_variables()
+                    if FLAGS.tied_embeddings_transforms and i > 0: 
+                        print("Reusing variables for embeddings computation.")
+                        tf.get_variable_scope().reuse_variables()
                     #input_reshaped = tf.reshape(self.input_x, [-1, 1, window_length, 1])
                     window_length = int(input_window.get_shape()[1])
                     input_reshaped = tf.reshape(input_window, [-1, window_length, 1])
