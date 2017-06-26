@@ -340,7 +340,7 @@ class UnsupSeech(object):
     
                     if second_cnn_layer:
                         
-                        with slim.arg_scope([slim.conv2d, slim.fully_connected], normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
+                        with slim.arg_scope([slim.conv2d, slim.fully_connected], weights_initializer=tf.truncated_normal_initializer(stddev=0.01), normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
                                                     normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
                             
                             #input_layer,filters, layer_num, num_connected, non_linearity=lrelu
@@ -364,14 +364,14 @@ class UnsupSeech(object):
     
                     print('flattened_pooled shape:',self.flattened_pooled.get_shape())
     
-                    self.fc1 = slim.fully_connected(self.flattened_pooled, fc_size, activation_fn=lrelu) #is_training)
+                    self.fc1 = slim.fully_connected(self.flattened_pooled, fc_size, activation_fn=lrelu, weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
                     print('fc1 shape:',self.fc1.get_shape())
                     self.outs.append(self.fc1)
                     
             stacked = tf.concat(self.outs, 1)
             print('stacked shape:',stacked.get_shape())
                 
-            self.out = slim.fully_connected(stacked, 1, activation_fn=tf.nn.sigmoid)
+            self.out = slim.fully_connected(stacked, 1, activation_fn=tf.nn.sigmoid, weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
             self.cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=self.labels, logits=self.out))
     
             if is_training:
