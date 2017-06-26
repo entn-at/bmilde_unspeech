@@ -351,7 +351,7 @@ class UnsupSeech(object):
                     #                        padding='VALID',name="pool")
     
                     # check if the 1d pooling operation is correct
-                    pooled = pool1d(conv, ksize=[1, 4 , 1], strides=[1, 4 , 1], padding='VALID',name="pool")
+                    pooled = pool1d(conv, ksize=[1, 16 , 1], strides=[1, 16 , 1], padding='VALID',name="pool")
                     print('pool1 shape:',pooled.get_shape())
     
                     pool_output_dim = int(pooled.get_shape()[1])
