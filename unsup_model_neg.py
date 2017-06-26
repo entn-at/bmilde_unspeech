@@ -552,7 +552,7 @@ if __name__ == "__main__":
     time.sleep(5)
 
     if FLAGS.debug:
-        filelist = filelist[:5]
+        filelist = filelist[:10]
 
     for myfile in filelist:
 #    for myfile in [filelist[-1]]:   
