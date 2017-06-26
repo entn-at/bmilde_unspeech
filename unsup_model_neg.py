@@ -32,7 +32,7 @@ tf.flags.DEFINE_integer("window1_length", 1024, "First window length, samples or
 tf.flags.DEFINE_integer("window2_length", 1024, "Second window length, samples or frames") # 100+ ms @ 16kHz
 tf.flags.DEFINE_integer("embedding_size", 256 , "Fully connected size at the end of the network.")
 
-tf.flags.DEFINE_boolean("with_dense_network", False,  "Whether to use a dense conv network for the embeddings computation.")
+tf.flags.DEFINE_boolean("with_dense_network", True,  "Whether to use a dense conv network for the embeddings computation.")
 tf.flags.DEFINE_integer("dense_block_filters", 10,  "Number of filters inside a conv2d in a dense block.")
 tf.flags.DEFINE_integer("dense_block_layers_connected", 3,  "Number of layers inside dense block.")
 tf.flags.DEFINE_integer("dense_block_filters_transition", 5, "Number of filters inside a conv2d in a dense block transition.")
