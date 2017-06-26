@@ -40,6 +40,8 @@ tf.flags.DEFINE_integer("dense_block_filters", 5,  "Number of filters inside a c
 tf.flags.DEFINE_integer("dense_block_layers_connected", 3,  "Number of layers inside dense block.")
 tf.flags.DEFINE_integer("dense_block_filters_transition", 4, "Number of filters inside a conv2d in a dense block transition.")
 
+tf.flags.DEFINE_integer("num_dnn_layers", 2, "How many layers for the baseline dnn.")
+
 tf.flags.DEFINE_boolean("tied_embeddings_transforms", True, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
 
 tf.flags.DEFINE_integer("negative_samples", 2, "How many negative samples to generate.")
@@ -408,12 +410,13 @@ class UnsupSeech(object):
                         self.flattened_pooled = pooled
                         
                     if FLAGS.with_baseline_dnn:
-                        with slim.arg_scope([slim.conv2d, slim.fully_connected], weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
+                        with slim.arg_scope([slim.conv2d, slim.fully_connected], weights_initializer=tf.truncated_normal_initializer(0.0, 0.01)):
                                             #weights_regularizer=slim.l2_regularizer(0.0005),
                                             #biases_initializer = tf.constant_initializer(0.01) if not FLAGS.batch_normalization else None,
-                                            normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
-                                            normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
-                            self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*2, activation_fn=tf.nn.relu)
+                                            #normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
+                                            #normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
+                            for x in range(FLAGS.num_dnn_layers):
+                                self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*2, activation_fn=tf.nn.relu)
                             #self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*2, activation_fn=tf.nn.relu)
                             #self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*2, activation_fn=tf.nn.relu)
                         
