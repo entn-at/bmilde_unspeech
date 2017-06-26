@@ -190,8 +190,8 @@ class UnsupSeech(object):
         window2_batch = []
         labels = []
         
-        for i in xrange(FLAGS.batch_size*k):
-            if i%k==0: 
+        for i in xrange(FLAGS.batch_size*(k+1)):
+            if i%(k+1)==0: 
                 combined_sample = self.get_random_audiosample(window_size_1+window_size_2)
                 window1 = combined_sample[:window_size_1]
                 window2 = combined_sample[window_size_1:]
