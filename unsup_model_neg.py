@@ -303,7 +303,7 @@ class UnsupSeech(object):
                                             #weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
                                             #weights_regularizer=slim.l2_regularizer(0.0005),
                                             activation_fn=tf.nn.tanh,
-                                            biases_initializer = tf.constant_initializer(0.01) if not FLAGS.batch_normalization else None):
+                                            biases_initializer = tf.constant_initializer(0.01)):
                                             #normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
                                             #normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
             with tf.variable_scope("unsupmodel"):
@@ -361,7 +361,7 @@ class UnsupSeech(object):
         
                         ## Apply nonlinearity
                         b = tf.Variable(tf.constant(0.01, shape=[num_filters]), name="bias1")
-                        conv = tf.nn.relu(tf.nn.bias_add(conv, b), name="activation1")
+                        conv = tf.nn.tanh(tf.nn.bias_add(conv, b), name="activation1")
         
                         pool_input_dim = int(conv.get_shape()[1])
         
