@@ -436,7 +436,7 @@ class UnsupSeech(object):
                         print('fc1 shape:',self.fc1.get_shape())
                         self.outs.append(self.fc1)
                         
-                stacked = tf.concat(self.outs, 1)
+                stacked = self.outs[0] - self.outs[1] #tf.concat(self.outs, 1)
                 print('stacked shape:',stacked.get_shape())
                     
                 self.out = slim.fully_connected(stacked, 1, activation_fn=tf.nn.sigmoid, weights_initializer=tf.truncated_normal_initializer(0.0, 0.01))#weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
