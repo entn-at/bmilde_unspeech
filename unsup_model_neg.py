@@ -33,9 +33,9 @@ tf.flags.DEFINE_integer("window2_length", 1024, "Second window length, samples o
 tf.flags.DEFINE_integer("embedding_size", 256 , "Fully connected size at the end of the network.")
 
 tf.flags.DEFINE_boolean("with_dense_network", True,  "Whether to use a dense conv network for the embeddings computation.")
-tf.flags.DEFINE_integer("dense_block_filters", 10,  "Number of filters inside a conv2d in a dense block.")
+tf.flags.DEFINE_integer("dense_block_filters", 5,  "Number of filters inside a conv2d in a dense block.")
 tf.flags.DEFINE_integer("dense_block_layers_connected", 3,  "Number of layers inside dense block.")
-tf.flags.DEFINE_integer("dense_block_filters_transition", 5, "Number of filters inside a conv2d in a dense block transition.")
+tf.flags.DEFINE_integer("dense_block_filters_transition", 4, "Number of filters inside a conv2d in a dense block transition.")
 
 tf.flags.DEFINE_boolean("tied_embeddings_transforms", True, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
 
@@ -46,9 +46,9 @@ tf.flags.DEFINE_boolean("batch_normalization", False, "Whether to use batch norm
 
 tf.flags.DEFINE_float("dropout_keep_prob", 1.0 , "Dropout keep probability")
 
-tf.flags.DEFINE_integer("steps_per_checkpoint", 1000,
+tf.flags.DEFINE_integer("steps_per_checkpoint", 400,
                                 "How many training steps to do per checkpoint.")
-tf.flags.DEFINE_integer("steps_per_summary", 300,
+tf.flags.DEFINE_integer("steps_per_summary", 200,
                                 "How many training steps to do per checkpoint.")
 
 tf.flags.DEFINE_integer("checkpoints_per_save", 1,
