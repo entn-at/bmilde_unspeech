@@ -389,6 +389,8 @@ class UnsupSeech(object):
                         flattened_size = int(pooled.get_shape()[1]*pooled.get_shape()[2]*pooled.get_shape()[3])
                         # Reshape conv2 output to fit fully connected layer input
                         self.flattened_pooled = tf.reshape(pooled, [-1, flattened_size])
+                    else:
+                        self.flattened_pooled = pooled
                 
                     #with tf.variable_scope('visualization_embedding'):
                     #    flattened_pooled_normalized = utils.tensor_normalize_0_to_1(self.flattened_pooled)
