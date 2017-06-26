@@ -15,6 +15,7 @@ import time
 import utils
 import math
 
+from sklearn.metrics import accuracy_score
 
 from tensorflow.python.ops import control_flow_ops
 
@@ -387,19 +388,19 @@ class UnsupSeech(object):
                         needs_flattening = True
                         if FLAGS.with_dense_network:
                             
-                            with slim.arg_scope([slim.conv2d, slim.fully_connected], weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
-                                                weights_regularizer=slim.l2_regularizer(0.0005),
-                                                biases_initializer = tf.constant_initializer(0.01) if not FLAGS.batch_normalization else None,
-                                                normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
-                                                normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
+                            #with slim.arg_scope([slim.conv2d, slim.fully_connected], weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
+                            #                    weights_regularizer=slim.l2_regularizer(0.0005),
+                            #                    biases_initializer = tf.constant_initializer(0.01) if not FLAGS.batch_normalization else None,
+                            #                    normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
+                            #                    normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
                                 
                                 #input_layer,filters, layer_num, num_connected, non_linearity=lrelu
-                                conv = DenseBlock2D(input_layer=pooled, filters=FLAGS.dense_block_filters, layer_num=2, num_connected=FLAGS.dense_block_layers_connected) #tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
-                                pooled = DenseTransition2D(l=conv, filters=FLAGS.dense_block_filters_transition, name='transition1', with_conv=True) 
-                                
-                                conv = DenseBlock2D(pooled, filters=FLAGS.dense_block_filters, layer_num=3, num_connected=FLAGS.dense_block_layers_connected)
-                                #pooled = DenseTransition2D(conv, 40, 'transition2')
-                                pooled = DenseFinal2D(conv, 'dense_end')
+                            conv = DenseBlock2D(input_layer=pooled, filters=FLAGS.dense_block_filters, layer_num=2, num_connected=FLAGS.dense_block_layers_connected) #tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
+                            pooled = DenseTransition2D(l=conv, filters=FLAGS.dense_block_filters_transition, name='transition1', with_conv=True) 
+                            
+                            conv = DenseBlock2D(pooled, filters=FLAGS.dense_block_filters, layer_num=3, num_connected=FLAGS.dense_block_layers_connected)
+                            #pooled = DenseTransition2D(conv, 40, 'transition2')
+                            pooled = DenseFinal2D(conv, 'dense_end')
         
                             print('pool shape after dense blocks:', pooled.get_shape())
         
@@ -508,7 +509,15 @@ def train(filelist):
 
                     #print('input_window_1:', input_window_1[0])
                     #print('input_window_2:', input_window_2[0])
-                    print('true labels, out (first 40 dims):', list(zip([elem[0] for elem in labels[:40]],[1.0 if elem[0] > 0.5 else 0.0 for elem in out[:40]])))
+                    labels_len = len(labels)
+                    out_len = len(out)
+                    
+                    labels_flat = np.reshape(labels,[-1])
+                    out_flat = (np.reshape(out,[-1]) > 0.5) * 1.0
+                    
+                    print('len', labels_len, out_len)
+                    print('true labels, out (first 40 dims):', list(zip(labels_flat,out_flat))[:60])
+                    print('accuracy:', accuracy_score(labels, out_flat))
                     print('At step %i step-time %.4f loss %.4f' % (current_step, step_time, mean_train_loss))
                     
                     train_losses = []
