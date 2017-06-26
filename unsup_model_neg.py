@@ -444,8 +444,7 @@ def train(filelist):
 
                     #print('input_window_1:', input_window_1[0])
                     #print('input_window_2:', input_window_2[0])
-                    print('out (first 40 dims):', out[:40])
-                    print('labels (first 40 dims):', labels[:40])
+                    print('true labels, out (first 40 dims):', list(zip(labels[:40],out[:40])))
                     print('At step %i step-time %.4f loss %.4f' % (current_step, step_time, mean_train_loss))
                     
                     train_losses = []
