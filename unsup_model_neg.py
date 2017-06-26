@@ -111,10 +111,10 @@ def lrelu(x, leak=0.2, name="lrelu"):
 def DenseBlock2D(input_layer,filters, layer_num, num_connected, non_linearity=lrelu):
     with tf.variable_scope("dense_unit"+str(layer_num)):
         nodes = []
-        a = slim.conv2d(input_layer,filters,[3,3], activation_fn=non_linearity, weights_initializer=tf.contrib.layers.variance_scaling_initializer(), biases_initializer = tf.constant_initializer(0.01))
+        a = slim.conv2d(input_layer,filters,[3,3], activation_fn=non_linearity)
         nodes.append(a)
         for z in range(num_connected):
-            b = slim.conv2d(tf.concat(nodes,3),filters,[3,3], activation_fn=non_linearity, weights_initializer=tf.contrib.layers.variance_scaling_initializer(), biases_initializer = tf.constant_initializer(0.01))
+            b = slim.conv2d(tf.concat(nodes,3),filters,[3,3], activation_fn=non_linearity)
             nodes.append(b)
         return b
 
@@ -122,7 +122,7 @@ def DenseBlock2D(input_layer,filters, layer_num, num_connected, non_linearity=lr
 def DenseTransition2D(l, filters, name, with_conv=True, non_linearity=lrelu):
     with tf.variable_scope(name):
         if with_conv:
-            l = slim.conv2d(l,filters,[3,3], activation_fn=non_linearity, weights_initializer=tf.contrib.layers.variance_scaling_initializer(), biases_initializer = tf.constant_initializer(0.01))
+            l = slim.conv2d(l,filters,[3,3], activation_fn=non_linearity)
         l = slim.avg_pool2d(l, [2,2])
     return l
 
@@ -148,7 +148,7 @@ def vgg16(inputs):
     net = slim.max_pool2d(net, [2, 2], scope='pool4')
     net = slim.repeat(net, 3, slim.conv2d, 512, [3, 3], scope='conv5')
     net = slim.max_pool2d(net, [2, 2], scope='pool5')
-    net = slim.fully_connected(net, 1024, scope='fc6')
+    net = slim.fully_connected(net, 512, scope='fc6')
     #net = slim.dropout(net, 0.5, scope='dropout6')
     net = slim.fully_connected(net, 256, scope='fc7')
     #net = slim.dropout(net, 0.5, scope='dropout7')
@@ -351,7 +351,7 @@ class UnsupSeech(object):
                     #                        padding='VALID',name="pool")
     
                     # check if the 1d pooling operation is correct
-                    pooled = pool1d(conv, ksize=[1, 16 , 1], strides=[1, 16 , 1], padding='VALID',name="pool")
+                    pooled = pool1d(conv, ksize=[1, 8 , 1], strides=[1, 8 , 1], padding='VALID',name="pool")
                     print('pool1 shape:',pooled.get_shape())
     
                     pool_output_dim = int(pooled.get_shape()[1])
@@ -368,8 +368,11 @@ class UnsupSeech(object):
                     needs_flattening = True
                     if FLAGS.with_dense_network:
                         
-                        with slim.arg_scope([slim.conv2d, slim.fully_connected], weights_initializer=tf.truncated_normal_initializer(stddev=0.01), normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
-                                                    normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
+                        with slim.arg_scope([slim.conv2d, slim.fully_connected], weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
+                                            weights_regularizer=slim.l2_regularizer(0.0005),
+                                            biases_initializer = tf.constant_initializer(0.01) if not FLAGS.batch_normalization else None,
+                                            normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
+                                            normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
                             
                             #input_layer,filters, layer_num, num_connected, non_linearity=lrelu
                             conv = DenseBlock2D(input_layer=pooled, filters=FLAGS.dense_block_filters, layer_num=2, num_connected=FLAGS.dense_block_layers_connected) #tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
