@@ -108,10 +108,10 @@ def lrelu(x, leak=0.2, name="lrelu"):
 def DenseBlock2D(input_layer,filters, layer_num, num_connected, non_linearity=lrelu):
     with tf.variable_scope("dense_unit"+str(layer_num)):
         nodes = []
-        a = slim.conv2d(input_layer,filters,[3,3], activation_fn=non_linearity)
+        a = slim.conv2d(input_layer,filters,[3,3], activation_fn=non_linearity, weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
         nodes.append(a)
         for z in range(num_connected):
-            b = slim.conv2d(tf.concat(nodes,3),filters,[3,3], activation_fn=non_linearity)
+            b = slim.conv2d(tf.concat(nodes,3),filters,[3,3], activation_fn=non_linearity, weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
             nodes.append(b)
         return b
 
@@ -119,7 +119,7 @@ def DenseBlock2D(input_layer,filters, layer_num, num_connected, non_linearity=lr
 def DenseTransition2D(l, filters, name, with_conv=True, non_linearity=lrelu):
     with tf.variable_scope(name):
         if with_conv:
-            l = slim.conv2d(l,filters,[3,3], activation_fn=non_linearity)
+            l = slim.conv2d(l,filters,[3,3], activation_fn=non_linearity, weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
         l = slim.avg_pool2d(l, [2,2])
     return l
 
