@@ -383,7 +383,6 @@ class UnsupSeech(object):
     
                     if FLAGS.with_vgg16:
                         self.flattened_pooled = vgg16(pooled)
-                        needs_flattening = False
     
                     if needs_flattening:
                         flattened_size = int(pooled.get_shape()[1]*pooled.get_shape()[2]*pooled.get_shape()[3])
