@@ -46,9 +46,9 @@ tf.flags.DEFINE_boolean("batch_normalization", False, "Whether to use batch norm
 
 tf.flags.DEFINE_float("dropout_keep_prob", 1.0 , "Dropout keep probability")
 
-tf.flags.DEFINE_integer("steps_per_checkpoint", 300,
+tf.flags.DEFINE_integer("steps_per_checkpoint", 1000,
                                 "How many training steps to do per checkpoint.")
-tf.flags.DEFINE_integer("steps_per_summary", 100,
+tf.flags.DEFINE_integer("steps_per_summary", 300,
                                 "How many training steps to do per checkpoint.")
 
 tf.flags.DEFINE_integer("checkpoints_per_save", 1,
