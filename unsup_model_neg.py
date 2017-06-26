@@ -204,9 +204,9 @@ class UnsupSeech(object):
 
         labels = np.asarray(labels).reshape(-1,1)
 
-        if self.first_call_to_get_batch:
-            print("window1_batch,",[elem[:5] for elem in window1_batch],"window2_batch,",[elem[:5] for elem in window2_batch],"labels",labels) 
-            self.first_call_to_get_batch = False
+        #if self.first_call_to_get_batch:
+        #    print("window1_batch,",[elem[:5] for elem in window1_batch],"window2_batch,",[elem[:5] for elem in window2_batch],"labels",labels) 
+        #    self.first_call_to_get_batch = False
 
         return window1_batch,window2_batch,labels
      
