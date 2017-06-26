@@ -32,8 +32,9 @@ tf.flags.DEFINE_integer("window1_length", 1024, "First window length, samples or
 tf.flags.DEFINE_integer("window2_length", 1024, "Second window length, samples or frames") # 100+ ms @ 16kHz
 tf.flags.DEFINE_integer("embedding_size", 256 , "Fully connected size at the end of the network.")
 
-tf.flags.DEFINE_boolean("with_vgg16", True, "Whether to use a vgg16 network for the embeddings computation.")
+tf.flags.DEFINE_boolean("with_vgg16", False, "Whether to use a vgg16 network for the embeddings computation.")
 tf.flags.DEFINE_boolean("with_dense_network", False,  "Whether to use a dense conv network for the embeddings computation.")
+tf.flags.DEFINE_boolean("with_baseline_dnn", True,  "Whether to use a baseline dnn network for the embeddings computation.")
 
 tf.flags.DEFINE_integer("dense_block_filters", 5,  "Number of filters inside a conv2d in a dense block.")
 tf.flags.DEFINE_integer("dense_block_layers_connected", 3,  "Number of layers inside dense block.")
@@ -405,6 +406,17 @@ class UnsupSeech(object):
                         self.flattened_pooled = tf.reshape(pooled, [-1, flattened_size])
                     else:
                         self.flattened_pooled = pooled
+                        
+                    if FLAGS.with_baseline_dnn:
+                        with slim.arg_scope([slim.conv2d, slim.fully_connected], weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
+                                            weights_regularizer=slim.l2_regularizer(0.0005),
+                                            biases_initializer = tf.constant_initializer(0.01) if not FLAGS.batch_normalization else None,
+                                            normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
+                                            normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
+                            self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*2, activation_fn=lrelu)
+                            self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*2, activation_fn=lrelu)
+                            self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*2, activation_fn=lrelu)
+                        
                 
                     #with tf.variable_scope('visualization_embedding'):
                     #    flattened_pooled_normalized = utils.tensor_normalize_0_to_1(self.flattened_pooled)
