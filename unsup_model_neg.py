@@ -21,15 +21,22 @@ from tensorflow.python.ops import control_flow_ops
 if sys.version_info[0] == 3:
     xrange = range
 
+tf.flags.DEFINE_string("filelist", "filelist.english.train", "Filelist, one wav file per line")
 tf.flags.DEFINE_boolean("end_to_end", True, "Use end-to-end learning (Input is 1D). Otherwise input is 2D like FBANK or MFCC features.")
+tf.flags.DEFINE_boolean("debug", True, "Limits the filelist size and is more debug.")
 
+tf.flags.DEFINE_integer("sample_rate", 16000, "Sample rate of the audio files. Must have the same samplerate for all audio files.") # 100+ ms @ 16kHz
+tf.flags.DEFINE_string("filter_sizes", "256", "Comma-separated filter sizes (default: '200')") # 25ms @ 16kHz
+tf.flags.DEFINE_integer("num_filters", 40, "Number of filters per filter size (default: 40)")
 tf.flags.DEFINE_integer("window1_length", 768, "First window length, samples or frames") # 100+ ms @ 16kHz
 tf.flags.DEFINE_integer("window2_length", 768, "Second window length, samples or frames") # 100+ ms @ 16kHz
 tf.flags.DEFINE_integer("embedding_size", 256 , "Fully connected size at the end of the network.")
+tf.flags.DEFINE_integer("dense_block_layers_inside", 5,  "Number of layers inside dense block.")
 
 tf.flags.DEFINE_integer("negative_samples", 4, "How many negative samples to generate.")
 
 tf.flags.DEFINE_integer("batch_size", 256, "Batch Size (default: 64)")
+tf.flags.DEFINE_boolean("batch_normalization", False, "Wether to use batch normalization.")
 
 tf.flags.DEFINE_float("dropout_keep_prob", 1.0 , "Dropout keep probability")
 
@@ -47,11 +54,9 @@ tf.flags.DEFINE_boolean("log_device_placement", False, "Log placement of ops on 
 
 tf.flags.DEFINE_float("learn_rate", 5e-4, "Learn rate for the optimizer")
 
-tf.flags.DEFINE_boolean("debug", False, "E.g. Smaller training data size")
-
 tf.flags.DEFINE_boolean("log_tensorboard", True, "Log training process if this is set to True.")
 
-tf.flags.DEFINE_string("train_dir", "/srv/data/milde/unspeech_models/", "Training dir to resume training from. If empty, a new one will be created.")
+tf.flags.DEFINE_string("train_dir", "/srv/data/milde/unspeech_models/neg/", "Training dir to resume training from. If empty, a new one will be created.")
 
 FLAGS = tf.flags.FLAGS
 
@@ -133,9 +138,13 @@ class UnsupSeech(object):
     """
     
     def create_training_graphs(self, create_new_train_dir=True, clip_norm=True, max_grad_norm=5.0):
+        # Define Training procedure
+        self.global_step = tf.Variable(0, name="global_step", trainable=False)
+        self.optimizer = tf.train.AdamOptimizer(FLAGS.learn_rate)                
+        
         self.train_op = slim.learning.create_train_op(self.cost, self.optimizer, global_step=self.global_step)
-
         self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+
         if self.update_ops:
             print('Will add update_ops dependency ...')
             updates = tf.group(*self.update_ops)
@@ -165,7 +174,8 @@ class UnsupSeech(object):
         
         random_file_num = int(math.floor(np.random.random_sample() * filelist_size))
         random_file = filelist[random_file_num]
-        audio_len = audio_data.shape[0] - window_size_1 - window_size_2
+        audio_data = training_data[random_file]
+        audio_len = audio_data.shape[0] - window_size
         random_pos_num = int(math.floor(np.random.random_sample() * audio_len))
         
         return np.array(audio_data[random_pos_num:random_pos_num+window_size])
@@ -184,18 +194,20 @@ class UnsupSeech(object):
                 window1 = combined_sample[:window_size_1]
                 window2 = combined_sample[window_size_1:]
                 #assign label 1, if both windows are consecutive
-                labels.append(1)
+                labels.append(1.0)
                 
             else:
                 window1 = self.get_random_audiosample(window_size_1)
                 window2 = self.get_random_audiosample(window_size_2)
                 #assign label 0, if both windows are randomly selected
-                labels.append(0)
+                labels.append(0.0)
                 
             window1_batch.append(window1)
             window2_batch.append(window2)
 
-        return window1,window2,labels
+        labels = np.asarray(labels).reshape(-1,1)
+
+        return window1_batch,window2_batch,labels
      
     # similar to get_batch_k_samples, but with true_context_window2_probability we select either two neighbooring pairs or two random audio snippets
     def get_batch_randomized(self, filelist, window_size_1, window_size_2, true_context_window2_probability=0.5):            
@@ -220,10 +232,10 @@ class UnsupSeech(object):
             window1_batch.append(window1)
             window2_batch.append(window2)
 
-        return window1,window2,labels
+        return window1_batch,window2_batch,labels
     
     
-    def __init__(self, window_size_1, window_size_2, filter_sizes, num_filters, fc_size, dropout_keep_prob, train_files, is_training=True, cost_function='mse', create_new_train_dir=True, batch_size=128):
+    def __init__(self, window_size_1, window_size_2, filter_sizes, num_filters, fc_size, dropout_keep_prob, train_files, is_training=True, create_new_train_dir=True, batch_size=128):
 
         self.train_files = train_files
 
@@ -246,7 +258,7 @@ class UnsupSeech(object):
                 for i,input_window in enumerate([self.input_window_1, self.input_window_2]):
                     if i > 0: tf.get_variable_scope().reuse_variables()
                     #input_reshaped = tf.reshape(self.input_x, [-1, 1, window_length, 1])
-                    window_length = int(input_window.get_shape([1]))
+                    window_length = int(input_window.get_shape()[1])
                     input_reshaped = tf.reshape(input_window, [-1, window_length, 1])
         
                     print('input_shape:', input_reshaped)
@@ -324,10 +336,10 @@ class UnsupSeech(object):
                         
                         with slim.arg_scope([slim.conv2d, slim.fully_connected], normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
                                                     normalizer_params={'is_training': is_training, 'decay': 0.95}):
-                            conv = DenseBlock2D(pooled, 10, 2, num_connected=3) #tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
+                            conv = DenseBlock2D(pooled, 5, 2, num_connected=3) #tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
                             pooled = DenseTransition2D(conv, 40, 'transition1') 
                             
-                            conv = DenseBlock2D(pooled, 10, 3, num_connected=3)
+                            conv = DenseBlock2D(pooled, 5, 3, num_connected=3)
                             #pooled = DenseTransition2D(conv, 40, 'transition2')
                             pooled = DenseFinal2D(conv, 'dense_end')
     
@@ -348,13 +360,16 @@ class UnsupSeech(object):
                     print('fc1 shape:',self.fc1.get_shape())
                     self.outs.append(self.fc1)
                     
-                stacked = np.concat(self.outs, 1)
-                print('stacked shape:',stacked.get_shape())
-                    
-                self.out = slim.fully_connected(stacked, fc_size, activation_fn=lrelu)
+            stacked = tf.concat(self.outs, 1)
+            print('stacked shape:',stacked.get_shape())
                 
-                self.cost(tf.nn.sigmoid_cross_entropy_with_logits(labels=self.labels, logits=self.out))
-                    
+            self.out = slim.fully_connected(stacked, 1, activation_fn=tf.nn.sigmoid)
+            self.cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=self.labels, logits=self.out))
+    
+            if is_training:
+                self.create_training_graphs(create_new_train_dir)
+                self.saver = tf.train.Saver(tf.global_variables())
+
     # do a training step with the supplied input data
     def step(self, sess, input_window_1, input_window_2, labels):
         feed_dict = {self.input_window_1: input_window_1, self.input_window_2: input_window_2, self.labels: labels}
@@ -366,7 +381,7 @@ def train(filelist):
     with tf.device('/gpu:1'):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
             model = UnsupSeech(window_size_1=FLAGS.window1_length, window_size_2=FLAGS.window2_length, filter_sizes=filter_sizes, 
-                                num_filters=FLAGS.num_filters, fc_size=FLAGS.embedding_size, dropout_keep_prob=FLAGS.dropout_keep_prob, train_files = filelist, cost_function=FLAGS.cost_function, batch_size=FLAGS.batch_size, decoder_layers=FLAGS.decoder_layers)
+                                num_filters=FLAGS.num_filters, fc_size=FLAGS.embedding_size, dropout_keep_prob=FLAGS.dropout_keep_prob, train_files = filelist,  batch_size=FLAGS.batch_size)
             
             restored = False
             if FLAGS.train_dir != "":
@@ -401,14 +416,14 @@ def train(filelist):
                 current_step += 1
 
                 if current_step % FLAGS.steps_per_summary == 0 and summary_writer is not None:
-                    input_window_1, input_window_2, decoder_inputs = model.get_batch_k_samples(filelist=filelist, window_size_1=FLAGS.window1_length, window_size_2=FLAGS.window2_length, k=FLAGS.negative_samples)
-                    summary_str = sess.run(model.train_summary_op, feed_dict={model.input_window_1:input_window_1, model.input_window_2:input_window_2, model.decoder_inputs: decoder_inputs})
+                    #input_window_1, input_window_2, labels = model.get_batch_k_samples(filelist=filelist, window_size_1=FLAGS.window1_length, window_size_2=FLAGS.window2_length, k=FLAGS.negative_samples)
+                    summary_str = sess.run(model.train_summary_op, feed_dict={model.input_window_1:input_window_1, model.input_window_2:input_window_2, model.labels: labels})
                     summary_writer.add_summary(summary_str, current_step)
 
                 # Get a batch and make a step.
                 start_time = time.time()
                 input_window_1, input_window_2, labels = model.get_batch_k_samples(filelist=filelist, window_size_1=FLAGS.window1_length, window_size_2=FLAGS.window2_length, k=FLAGS.negative_samples)
-                out, train_loss = model.step(sess, input_window_1, input_window_2)
+                out, train_loss = model.step(sess, input_window_1, input_window_2, labels)
                 train_losses.append(train_loss)
 
                 step_time += (time.time() - start_time) / FLAGS.steps_per_checkpoint
@@ -446,12 +461,8 @@ if __name__ == "__main__":
     print('continuing training in 5 seconds...')
     time.sleep(5)
 
-    if FLAGS.eval:
-        if FLAGS.generative:
-            filelist = utils.loadIdFile(FLAGS.filelist, 10)
-            filelist = filelist[-5:]
-    elif FLAGS.debug:
-        filelist = filelist[:10]
+    if FLAGS.debug:
+        filelist = filelist[:5]
 
     for myfile in filelist:
 #    for myfile in [filelist[-1]]:   
