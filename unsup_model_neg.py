@@ -299,9 +299,10 @@ class UnsupSeech(object):
         
         self.first_call_to_get_batch = True
         
-        with slim.arg_scope([slim.conv2d, slim.fully_connected],  tf.truncated_normal_initializer(stddev=0.01),
+        with slim.arg_scope([slim.conv2d, slim.fully_connected],  weights_initializer=tf.truncated_normal_initializer(stddev=0.01),
                                             #weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
                                             #weights_regularizer=slim.l2_regularizer(0.0005),
+                                            activation_fn=tf.nn.tanh,
                                             biases_initializer = tf.constant_initializer(0.01) if not FLAGS.batch_normalization else None):
                                             #normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
                                             #normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
@@ -423,7 +424,7 @@ class UnsupSeech(object):
                                                 #normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
                                                 #normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
                             for x in range(FLAGS.num_dnn_layers):
-                                self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*2, activation_fn=tf.nn.relu)                    
+                                self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*2)                    
                    
                         #with tf.variable_scope('visualization_embedding'):
                         #    flattened_pooled_normalized = utils.tensor_normalize_0_to_1(self.flattened_pooled)
@@ -431,7 +432,7 @@ class UnsupSeech(object):
         
                         print('flattened_pooled shape:',self.flattened_pooled.get_shape())
         
-                        self.fc1 = slim.fully_connected(self.flattened_pooled, fc_size, activation_fn=tf.nn.relu, weights_initializer=tf.truncated_normal_initializer(0.0, 0.01))#weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
+                        self.fc1 = slim.fully_connected(self.flattened_pooled, fc_size)#weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
                         print('fc1 shape:',self.fc1.get_shape())
                         self.outs.append(self.fc1)
                         
