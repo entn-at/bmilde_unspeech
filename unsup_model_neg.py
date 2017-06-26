@@ -382,7 +382,7 @@ class UnsupSeech(object):
                         print('pool shape after dense blocks:', pooled.get_shape())
     
                     if FLAGS.with_vgg16:
-                        self.pooled = vgg16(pooled)
+                        pooled = vgg16(pooled)
                         print('pool shape after vgg16 block:', pooled.get_shape())
     
                     if needs_flattening:
