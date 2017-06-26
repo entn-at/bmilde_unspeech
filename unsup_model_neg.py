@@ -37,7 +37,7 @@ tf.flags.DEFINE_integer("dense_block_filters", 3,  "Number of filters inside a c
 tf.flags.DEFINE_integer("dense_block_layers_connected", 3,  "Number of layers inside dense block.")
 tf.flags.DEFINE_integer("dense_block_filters_transition", 10, "Number of filters inside a conv2d in a dense block transition.")
 
-tf.flags.DEFINE_boolean("tied_embeddings_transforms", False, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
+tf.flags.DEFINE_boolean("tied_embeddings_transforms", True, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
 
 tf.flags.DEFINE_integer("negative_samples", 2, "How many negative samples to generate.")
 
