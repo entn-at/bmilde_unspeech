@@ -345,7 +345,7 @@ class UnsupSeech(object):
                             
                             #input_layer,filters, layer_num, num_connected, non_linearity=lrelu
                             conv = DenseBlock2D(input_layer=pooled, filters=FLAGS.dense_block_filters, layer_num=2, num_connected=FLAGS.dense_block_layers_connected) #tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
-                            pooled = DenseTransition2D(input_layer=conv, filters=FLAGS.dense_block_filters_transition, name='transition1', with_conv=True) 
+                            pooled = DenseTransition2D(l=conv, filters=FLAGS.dense_block_filters_transition, name='transition1', with_conv=True) 
                             
                             conv = DenseBlock2D(pooled, filters=FLAGS.dense_block_filters, layer_num=3, num_connected=FLAGS.dense_block_layers_connected)
                             #pooled = DenseTransition2D(conv, 40, 'transition2')
