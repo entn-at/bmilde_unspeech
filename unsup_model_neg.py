@@ -33,9 +33,9 @@ tf.flags.DEFINE_integer("window2_length", 1024, "Second window length, samples o
 tf.flags.DEFINE_integer("embedding_size", 256 , "Fully connected size at the end of the network.")
 
 tf.flags.DEFINE_boolean("with_dense_network", False,  "Whether to use a dense conv network for the embeddings computation.")
-tf.flags.DEFINE_integer("dense_block_filters", 20,  "Number of filters inside a conv2d in a dense block.")
+tf.flags.DEFINE_integer("dense_block_filters", 10,  "Number of filters inside a conv2d in a dense block.")
 tf.flags.DEFINE_integer("dense_block_layers_connected", 3,  "Number of layers inside dense block.")
-tf.flags.DEFINE_integer("dense_block_filters_transition", 8, "Number of filters inside a conv2d in a dense block transition.")
+tf.flags.DEFINE_integer("dense_block_filters_transition", 5, "Number of filters inside a conv2d in a dense block transition.")
 
 tf.flags.DEFINE_boolean("tied_embeddings_transforms", True, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
 
@@ -141,16 +141,16 @@ class UnsupSeech(object):
         self.global_step = tf.Variable(0, name="global_step", trainable=False)
         self.optimizer = tf.train.AdamOptimizer(FLAGS.learn_rate)                
         
-        self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+        #self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 
-        if self.update_ops:
-            print('Will add update_ops dependency ...')
-            updates = tf.group(*self.update_ops)
-            self.opt_cost = control_flow_ops.with_dependencies([updates], self.cost)
-        else:
-            self.opt_cost = self.cost
+#        if self.update_ops:
+ #           print('Will add update_ops dependency ...')
+  #          updates = tf.group(*self.update_ops)
+   #         self.opt_cost = control_flow_ops.with_dependencies([updates], self.cost)
+    #    else:
+     #       self.opt_cost = self.cost
             
-        self.train_op = slim.learning.create_train_op(self.opt_cost, self.optimizer, global_step=self.global_step, clip_gradient_norm=FLAGS.gradient_clipping)
+        self.train_op = slim.learning.create_train_op(self.cost, self.optimizer, global_step=self.global_step, clip_gradient_norm=FLAGS.gradient_clipping)
 
         if create_new_train_dir:
             timestamp = str(int(time.time()))
