@@ -424,7 +424,7 @@ class UnsupSeech(object):
                                                 #normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
                                                 #normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
                             for x in range(FLAGS.num_dnn_layers):
-                                self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*2)                    
+                                self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*4)                    
                    
                         #with tf.variable_scope('visualization_embedding'):
                         #    flattened_pooled_normalized = utils.tensor_normalize_0_to_1(self.flattened_pooled)
