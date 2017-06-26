@@ -39,7 +39,7 @@ tf.flags.DEFINE_integer("dense_block_filters_transition", 8, "Number of filters 
 
 tf.flags.DEFINE_boolean("tied_embeddings_transforms", True, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
 
-tf.flags.DEFINE_integer("negative_samples", 5, "How many negative samples to generate.")
+tf.flags.DEFINE_integer("negative_samples", 2, "How many negative samples to generate.")
 
 tf.flags.DEFINE_integer("batch_size", 256, "Batch Size (default: 64)")
 tf.flags.DEFINE_boolean("batch_normalization", False, "Whether to use batch normalization.")
@@ -57,7 +57,8 @@ tf.flags.DEFINE_integer("checkpoints_per_save", 1,
 tf.flags.DEFINE_boolean("allow_soft_placement", True, "Allow device soft device placement")
 tf.flags.DEFINE_boolean("log_device_placement", False, "Log placement of ops on devices")
 
-tf.flags.DEFINE_float("learn_rate", 8e-4, "Learn rate for the optimizer")
+tf.flags.DEFINE_float("learn_rate", 5e-4, "Learn rate for the optimizer")
+tf.flags.DEFINE_float("gradient_clipping", 5.0, "Clip the gradient at larger +/- this value.")
 
 tf.flags.DEFINE_boolean("log_tensorboard", True, "Log training process if this is set to True.")
 
@@ -149,7 +150,7 @@ class UnsupSeech(object):
         else:
             self.opt_cost = self.cost
             
-        self.train_op = slim.learning.create_train_op(self.opt_cost, self.optimizer, global_step=self.global_step)
+        self.train_op = slim.learning.create_train_op(self.opt_cost, self.optimizer, global_step=self.global_step, clip_gradient_norm=FLAGS.gradient_clipping)
 
         if create_new_train_dir:
             timestamp = str(int(time.time()))
@@ -444,7 +445,7 @@ def train(filelist):
 
                     #print('input_window_1:', input_window_1[0])
                     #print('input_window_2:', input_window_2[0])
-                    print('true labels, out (first 40 dims):', list(zip([elem[0] for elem in labels[:40]],[elem[0] for elem in out[:40]])))
+                    print('true labels, out (first 40 dims):', list(zip([elem[0] for elem in labels[:40]],[1.0 if elem[0] > 0.5 else 0.0 for elem in out[:40]])))
                     print('At step %i step-time %.4f loss %.4f' % (current_step, step_time, mean_train_loss))
                     
                     train_losses = []
