@@ -298,148 +298,150 @@ class UnsupSeech(object):
         
         self.first_call_to_get_batch = True
         
-        with tf.variable_scope("unsupmodel"):
-            # a list of embeddings to use for the binary classifier (the embeddings are combined)
-            self.outs = []
-            with tf.variable_scope("embedding-transform"):
-                for i,input_window in enumerate([self.input_window_1, self.input_window_2]):
-                    if FLAGS.tied_embeddings_transforms and i > 0: 
-                        print("Reusing variables for embeddings computation.")
-                        tf.get_variable_scope().reuse_variables()
-                    #input_reshaped = tf.reshape(self.input_x, [-1, 1, window_length, 1])
-                    window_length = int(input_window.get_shape()[1])
-                    input_reshaped = tf.reshape(input_window, [-1, window_length, 1])
-        
-                    print('input_shape:', input_reshaped)
-        
-                    self.pooled_outputs = []
-        
-                    #currently we only support one filtersize (but we could extend)
-                    #for i, filter_size in enumerate(filter_sizes):
-                    filter_size = filter_sizes[0]
-
-                    # 2D conv
-                    # [filter_height, filter_width, in_channels, out_channels]
-                    
-                    # 1D conv:
-                    # [filter_width, in_channels, out_channels]
-
-                    print('Filter size is:', filter_size)
-                    
-                    #this would be the filter for a conv2d:
-                    #filter_shape = [1 , filter_size, 1, num_filters]
-                
-                    filter_shape = [filter_size, 1, num_filters]
-                    print('filter_shape:',filter_shape)
-                    W = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.01), name="W")
-                    #W = tf.get_variable("W",shape=filter_shape,initializer=tf.contrib.layers.xavier_initializer_conv2d())
-                    
-    
-                    # 1D conv without padding(padding=VALID)
-                    #conv = tf.nn.conv2d(input_reshaped,W,strides=[1, 1, 2, 1],padding="VALID",name="conv")
-    
-                    conv = tf.nn.conv1d(input_reshaped, W, stride=2, padding="VALID",name="conv1")
-    
-                    with tf.variable_scope('visualization_conv1d'):
-                        # scale weights to [0 1], type is still float
-                        kernel_0_to_1 = utils.tensor_normalize_0_to_1(W) 
-    
-                        # to tf.image_summary format [batch_size, height, width, channels]
-                        kernel_transposed = tf.transpose(kernel_0_to_1, [2, 0, 1])
-                        kernel_transposed = tf.expand_dims(kernel_transposed, 0)
-    
-                        # this will display random 3 filters from the 64 in conv1
-                        tf.summary.image('conv1d_filters', kernel_transposed) #, max_images=3)
-    
-                    ## Apply nonlinearity
-                    b = tf.Variable(tf.constant(0.01, shape=[num_filters]), name="bias1")
-                    conv = tf.nn.relu(tf.nn.bias_add(conv, b), name="activation1")
-    
-                    pool_input_dim = int(conv.get_shape()[1])
-    
-                    print('pool input dim:', pool_input_dim)
-                    print('conv1 shape:',conv.get_shape())
-                    # Temporal maxpool accross all filters, pool size 2
-                    #pooled = tf.nn.max_pool(conv,ksize=[1, 1, pool_input_dim / 8, 1], # max_pool over / 4 of inputsize filters
-                    #                        strides=[1, 1, pool_input_dim / 16 , 1], # hopped by / 8 of input size
-                    #                        padding='VALID',name="pool")
-    
-                    # check if the 1d pooling operation is correct
-                    pooled = pool1d(conv, ksize=[1, 2 , 1], strides=[1, 2 , 1], padding='VALID',name="pool")
-                    print('pool1 shape:',pooled.get_shape())
-    
-                    pool_output_dim = int(pooled.get_shape()[1])
-                    print('pool_output_dim shape:',pooled.get_shape())
-    
-                    pooled = tf.reshape(pooled,[-1,pool_output_dim, num_filters, 1])
-    
-                    print('pool1 reshaped shape:',pooled.get_shape())
-    
-                    #input shape: batch, in_height, in_width, in_channels
-                    #filter shape: filter_height, filter_width, in_channels, out_channels
-                    #('pool1 shape:', TensorShape([Dimension(None), Dimension(1), Dimension(7), Dimension(80)]))
-        
-                    needs_flattening = True
-                    if FLAGS.with_dense_network:
-                        
-                        with slim.arg_scope([slim.conv2d, slim.fully_connected], weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
+        with slim.arg_scope([slim.conv2d, slim.fully_connected], weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
                                             weights_regularizer=slim.l2_regularizer(0.0005),
                                             biases_initializer = tf.constant_initializer(0.01) if not FLAGS.batch_normalization else None,
                                             normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
                                             normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
-                            
-                            #input_layer,filters, layer_num, num_connected, non_linearity=lrelu
-                            conv = DenseBlock2D(input_layer=pooled, filters=FLAGS.dense_block_filters, layer_num=2, num_connected=FLAGS.dense_block_layers_connected) #tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
-                            pooled = DenseTransition2D(l=conv, filters=FLAGS.dense_block_filters_transition, name='transition1', with_conv=True) 
-                            
-                            conv = DenseBlock2D(pooled, filters=FLAGS.dense_block_filters, layer_num=3, num_connected=FLAGS.dense_block_layers_connected)
-                            #pooled = DenseTransition2D(conv, 40, 'transition2')
-                            pooled = DenseFinal2D(conv, 'dense_end')
+            with tf.variable_scope("unsupmodel"):
+                # a list of embeddings to use for the binary classifier (the embeddings are combined)
+                self.outs = []
+                with tf.variable_scope("embedding-transform"):
+                    for i,input_window in enumerate([self.input_window_1, self.input_window_2]):
+                        if FLAGS.tied_embeddings_transforms and i > 0: 
+                            print("Reusing variables for embeddings computation.")
+                            tf.get_variable_scope().reuse_variables()
+                        #input_reshaped = tf.reshape(self.input_x, [-1, 1, window_length, 1])
+                        window_length = int(input_window.get_shape()[1])
+                        input_reshaped = tf.reshape(input_window, [-1, window_length, 1])
+            
+                        print('input_shape:', input_reshaped)
+            
+                        self.pooled_outputs = []
+            
+                        #currently we only support one filtersize (but we could extend)
+                        #for i, filter_size in enumerate(filter_sizes):
+                        filter_size = filter_sizes[0]
     
-                        print('pool shape after dense blocks:', pooled.get_shape())
-    
-                    if FLAGS.with_vgg16:
-                        pooled = vgg16(pooled)
-                        print('pool shape after vgg16 block:', pooled.get_shape())
-    
-                    if needs_flattening:
-                        flattened_size = int(pooled.get_shape()[1]*pooled.get_shape()[2]*pooled.get_shape()[3])
-                        # Reshape conv2 output to fit fully connected layer input
-                        self.flattened_pooled = tf.reshape(pooled, [-1, flattened_size])
-                    else:
-                        self.flattened_pooled = pooled
+                        # 2D conv
+                        # [filter_height, filter_width, in_channels, out_channels]
                         
-                    if FLAGS.with_baseline_dnn:
-                        with slim.arg_scope([slim.conv2d, slim.fully_connected], weights_initializer=tf.truncated_normal_initializer(0.0, 0.01)):
-                                            #weights_regularizer=slim.l2_regularizer(0.0005),
-                                            #biases_initializer = tf.constant_initializer(0.01) if not FLAGS.batch_normalization else None,
-                                            #normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
-                                            #normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
-                            for x in range(FLAGS.num_dnn_layers):
-                                self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*2, activation_fn=tf.nn.relu)
-                            #self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*2, activation_fn=tf.nn.relu)
-                            #self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*2, activation_fn=tf.nn.relu)
+                        # 1D conv:
+                        # [filter_width, in_channels, out_channels]
+    
+                        print('Filter size is:', filter_size)
                         
-                
-                    #with tf.variable_scope('visualization_embedding'):
-                    #    flattened_pooled_normalized = utils.tensor_normalize_0_to_1(self.flattened_pooled)
-                    #    tf.summary.image('learned_embedding', tf.reshape(flattened_pooled_normalized,[-1,1,flattened_size,1]), max_outputs=10)
-    
-                    print('flattened_pooled shape:',self.flattened_pooled.get_shape())
-    
-                    self.fc1 = slim.fully_connected(self.flattened_pooled, fc_size, activation_fn=tf.nn.relu, weights_initializer=tf.truncated_normal_initializer(0.0, 0.01))#weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
-                    print('fc1 shape:',self.fc1.get_shape())
-                    self.outs.append(self.fc1)
+                        #this would be the filter for a conv2d:
+                        #filter_shape = [1 , filter_size, 1, num_filters]
                     
-            stacked = tf.concat(self.outs, 1)
-            print('stacked shape:',stacked.get_shape())
-                
-            self.out = slim.fully_connected(stacked, 1, activation_fn=tf.nn.sigmoid, weights_initializer=tf.truncated_normal_initializer(0.0, 0.01))#weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
-            self.cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=self.labels, logits=self.out))
-    
-            if is_training:
-                self.create_training_graphs(create_new_train_dir)
-                self.saver = tf.train.Saver(tf.global_variables())
+                        filter_shape = [filter_size, 1, num_filters]
+                        print('filter_shape:',filter_shape)
+                        W = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.01), name="W")
+                        #W = tf.get_variable("W",shape=filter_shape,initializer=tf.contrib.layers.xavier_initializer_conv2d())
+                        
+        
+                        # 1D conv without padding(padding=VALID)
+                        #conv = tf.nn.conv2d(input_reshaped,W,strides=[1, 1, 2, 1],padding="VALID",name="conv")
+        
+                        conv = tf.nn.conv1d(input_reshaped, W, stride=2, padding="VALID",name="conv1")
+        
+                        with tf.variable_scope('visualization_conv1d'):
+                            # scale weights to [0 1], type is still float
+                            kernel_0_to_1 = utils.tensor_normalize_0_to_1(W) 
+        
+                            # to tf.image_summary format [batch_size, height, width, channels]
+                            kernel_transposed = tf.transpose(kernel_0_to_1, [2, 0, 1])
+                            kernel_transposed = tf.expand_dims(kernel_transposed, 0)
+        
+                            # this will display random 3 filters from the 64 in conv1
+                            tf.summary.image('conv1d_filters', kernel_transposed) #, max_images=3)
+        
+                        ## Apply nonlinearity
+                        b = tf.Variable(tf.constant(0.01, shape=[num_filters]), name="bias1")
+                        conv = tf.nn.relu(tf.nn.bias_add(conv, b), name="activation1")
+        
+                        pool_input_dim = int(conv.get_shape()[1])
+        
+                        print('pool input dim:', pool_input_dim)
+                        print('conv1 shape:',conv.get_shape())
+                        # Temporal maxpool accross all filters, pool size 2
+                        #pooled = tf.nn.max_pool(conv,ksize=[1, 1, pool_input_dim / 8, 1], # max_pool over / 4 of inputsize filters
+                        #                        strides=[1, 1, pool_input_dim / 16 , 1], # hopped by / 8 of input size
+                        #                        padding='VALID',name="pool")
+        
+                        # check if the 1d pooling operation is correct
+                        pooled = pool1d(conv, ksize=[1, 2 , 1], strides=[1, 2 , 1], padding='VALID',name="pool")
+                        print('pool1 shape:',pooled.get_shape())
+        
+                        pool_output_dim = int(pooled.get_shape()[1])
+                        print('pool_output_dim shape:',pooled.get_shape())
+        
+                        pooled = tf.reshape(pooled,[-1,pool_output_dim, num_filters, 1])
+        
+                        print('pool1 reshaped shape:',pooled.get_shape())
+        
+                        #input shape: batch, in_height, in_width, in_channels
+                        #filter shape: filter_height, filter_width, in_channels, out_channels
+                        #('pool1 shape:', TensorShape([Dimension(None), Dimension(1), Dimension(7), Dimension(80)]))
+            
+                        needs_flattening = True
+                        if FLAGS.with_dense_network:
+                            
+                            with slim.arg_scope([slim.conv2d, slim.fully_connected], weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
+                                                weights_regularizer=slim.l2_regularizer(0.0005),
+                                                biases_initializer = tf.constant_initializer(0.01) if not FLAGS.batch_normalization else None,
+                                                normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
+                                                normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
+                                
+                                #input_layer,filters, layer_num, num_connected, non_linearity=lrelu
+                                conv = DenseBlock2D(input_layer=pooled, filters=FLAGS.dense_block_filters, layer_num=2, num_connected=FLAGS.dense_block_layers_connected) #tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
+                                pooled = DenseTransition2D(l=conv, filters=FLAGS.dense_block_filters_transition, name='transition1', with_conv=True) 
+                                
+                                conv = DenseBlock2D(pooled, filters=FLAGS.dense_block_filters, layer_num=3, num_connected=FLAGS.dense_block_layers_connected)
+                                #pooled = DenseTransition2D(conv, 40, 'transition2')
+                                pooled = DenseFinal2D(conv, 'dense_end')
+        
+                            print('pool shape after dense blocks:', pooled.get_shape())
+        
+                        if FLAGS.with_vgg16:
+                            pooled = vgg16(pooled)
+                            print('pool shape after vgg16 block:', pooled.get_shape())
+        
+                        if needs_flattening:
+                            flattened_size = int(pooled.get_shape()[1]*pooled.get_shape()[2]*pooled.get_shape()[3])
+                            # Reshape conv2 output to fit fully connected layer input
+                            self.flattened_pooled = tf.reshape(pooled, [-1, flattened_size])
+                        else:
+                            self.flattened_pooled = pooled
+                            
+                        if FLAGS.with_baseline_dnn:
+                            #with slim.arg_scope([slim.conv2d, slim.fully_connected], weights_initializer=tf.truncated_normal_initializer(0.0, 0.01)):
+                                                #weights_regularizer=slim.l2_regularizer(0.0005),
+                                                #biases_initializer = tf.constant_initializer(0.01) if not FLAGS.batch_normalization else None,
+                                                #normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
+                                                #normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
+                            for x in range(FLAGS.num_dnn_layers):
+                                self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*2, activation_fn=tf.nn.relu)                    
+                   
+                        #with tf.variable_scope('visualization_embedding'):
+                        #    flattened_pooled_normalized = utils.tensor_normalize_0_to_1(self.flattened_pooled)
+                        #    tf.summary.image('learned_embedding', tf.reshape(flattened_pooled_normalized,[-1,1,flattened_size,1]), max_outputs=10)
+        
+                        print('flattened_pooled shape:',self.flattened_pooled.get_shape())
+        
+                        self.fc1 = slim.fully_connected(self.flattened_pooled, fc_size, activation_fn=tf.nn.relu, weights_initializer=tf.truncated_normal_initializer(0.0, 0.01))#weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
+                        print('fc1 shape:',self.fc1.get_shape())
+                        self.outs.append(self.fc1)
+                        
+                stacked = tf.concat(self.outs, 1)
+                print('stacked shape:',stacked.get_shape())
+                    
+                self.out = slim.fully_connected(stacked, 1, activation_fn=tf.nn.sigmoid, weights_initializer=tf.truncated_normal_initializer(0.0, 0.01))#weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
+                self.cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=self.labels, logits=self.out))
+        
+                if is_training:
+                    self.create_training_graphs(create_new_train_dir)
+                    self.saver = tf.train.Saver(tf.global_variables())
 
     # do a training step with the supplied input data
     def step(self, sess, input_window_1, input_window_2, labels):
