@@ -26,12 +26,15 @@ tf.flags.DEFINE_boolean("end_to_end", True, "Use end-to-end learning (Input is 1
 tf.flags.DEFINE_boolean("debug", True, "Limits the filelist size and is more debug.")
 
 tf.flags.DEFINE_integer("sample_rate", 16000, "Sample rate of the audio files. Must have the same samplerate for all audio files.") # 100+ ms @ 16kHz
-tf.flags.DEFINE_string("filter_sizes", "256", "Comma-separated filter sizes (default: '200')") # 25ms @ 16kHz
+tf.flags.DEFINE_string("filter_sizes", "512", "Comma-separated filter sizes (default: '200')") # 25ms @ 16kHz
 tf.flags.DEFINE_integer("num_filters", 40, "Number of filters per filter size (default: 40)")
-tf.flags.DEFINE_integer("window1_length", 768, "First window length, samples or frames") # 100+ ms @ 16kHz
-tf.flags.DEFINE_integer("window2_length", 768, "Second window length, samples or frames") # 100+ ms @ 16kHz
+tf.flags.DEFINE_integer("window1_length", 1024, "First window length, samples or frames") # 100+ ms @ 16kHz
+tf.flags.DEFINE_integer("window2_length", 1024, "Second window length, samples or frames") # 100+ ms @ 16kHz
 tf.flags.DEFINE_integer("embedding_size", 256 , "Fully connected size at the end of the network.")
-tf.flags.DEFINE_integer("dense_block_layers_inside", 5,  "Number of layers inside dense block.")
+tf.flags.DEFINE_integer("dense_block_filters", 3,  "Number of filters inside a conv2d in a dense block.")
+tf.flags.DEFINE_integer("dense_block_layers_connected", 3,  "Number of layers inside dense block.")
+tf.flags.DEFINE_integer("dense_block_filters_transition", 10, "Number of filters inside a conv2d in a dense block transition.")
+
 tf.flags.DEFINE_boolean("tied_embeddings_transforms", False, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
 
 tf.flags.DEFINE_integer("negative_samples", 2, "How many negative samples to generate.")
@@ -339,10 +342,12 @@ class UnsupSeech(object):
                         
                         with slim.arg_scope([slim.conv2d, slim.fully_connected], normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
                                                     normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
-                            conv = DenseBlock2D(pooled, 5, 2, num_connected=3) #tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
-                            pooled = DenseTransition2D(conv, 40, 'transition1') 
                             
-                            conv = DenseBlock2D(pooled, 5, 3, num_connected=3)
+                            #input_layer,filters, layer_num, num_connected, non_linearity=lrelu
+                            conv = DenseBlock2D(input_layer=pooled, filters=FLAGS.dense_block_filters, layer_num=2, num_connected=FLAGS.dense_block_layers_connected) #tf.nn.conv2d(pooled, W2, strides=[1, 1, 1, 1], padding="VALID", name="conv")
+                            pooled = DenseTransition2D(input_layer=conv, filters=FLAGS.dense_block_filters_transition, name='transition1', with_conv=True) 
+                            
+                            conv = DenseBlock2D(pooled, filters=FLAGS.dense_block_filters, layer_num=3, num_connected=FLAGS.dense_block_layers_connected)
                             #pooled = DenseTransition2D(conv, 40, 'transition2')
                             pooled = DenseFinal2D(conv, 'dense_end')
     
@@ -436,9 +441,9 @@ def train(filelist):
                     checkpoint_step += 1
                     mean_train_loss = np.mean(train_losses)
 
-                    print('input_window_1:', input_window_1[0])
-                    print('input_window_2:', input_window_2[0])
-                    #print('out:', out[0])
+                    #print('input_window_1:', input_window_1[0])
+                    #print('input_window_2:', input_window_2[0])
+                    print('out (first 20 dims):', out[0][:20])
                     print('At step %i step-time %.4f loss %.4f' % (current_step, step_time, mean_train_loss))
                     
                     train_losses = []
