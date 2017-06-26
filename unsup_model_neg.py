@@ -414,7 +414,7 @@ class UnsupSeech(object):
                                             normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
                                             normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
                             self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*2, activation_fn=tf.nn.relu)
-                            self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*2, activation_fn=tf.nn.relu)
+                            #self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*2, activation_fn=tf.nn.relu)
                             #self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*2, activation_fn=tf.nn.relu)
                         
                 
