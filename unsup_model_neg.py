@@ -516,7 +516,7 @@ def train(filelist):
                     out_flat = (np.reshape(out,[-1]) > 0.5) * 1.0
                     out_flat_zero = np.zeros_like(labels_flat)
                     
-                    print('np.bincount:', np.bincount(out_flat))
+                    print('np.bincount:', np.bincount(out_flat.astype('int32')))
                     print('len:', labels_len, out_len)
                     print('true labels, out (first 40 dims):', list(zip(labels_flat,out_flat))[:60])
                     print('accuracy:', accuracy_score(labels, out_flat))
