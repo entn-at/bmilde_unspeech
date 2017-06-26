@@ -34,7 +34,7 @@ tf.flags.DEFINE_integer("embedding_size", 256 , "Fully connected size at the end
 tf.flags.DEFINE_integer("dense_block_layers_inside", 5,  "Number of layers inside dense block.")
 tf.flags.DEFINE_boolean("tied_embeddings_transforms", False, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
 
-tf.flags.DEFINE_integer("negative_samples", 4, "How many negative samples to generate.")
+tf.flags.DEFINE_integer("negative_samples", 2, "How many negative samples to generate.")
 
 tf.flags.DEFINE_integer("batch_size", 256, "Batch Size (default: 64)")
 tf.flags.DEFINE_boolean("batch_normalization", False, "Wether to use batch normalization.")
@@ -42,7 +42,7 @@ tf.flags.DEFINE_boolean("batch_normalization", False, "Wether to use batch norma
 tf.flags.DEFINE_float("dropout_keep_prob", 1.0 , "Dropout keep probability")
 
 
-tf.flags.DEFINE_integer("steps_per_checkpoint", 1000,
+tf.flags.DEFINE_integer("steps_per_checkpoint", 300,
                                 "How many training steps to do per checkpoint.")
 tf.flags.DEFINE_integer("steps_per_summary", 100,
                                 "How many training steps to do per checkpoint.")
@@ -222,13 +222,13 @@ class UnsupSeech(object):
                 window1 = combined_sample[:window_size_1]
                 window2 = combined_sample[window_size_1:]
                 #assign label 1, if both windows are consecutive
-                labels.append(1)
+                labels.append(1.0)
                 
             else:
                 window1 = self.get_random_audiosample(window_size_1)
                 window2 = self.get_random_audiosample(window_size_2)
                 #assign label 0, if both windows are randomly selected 
-                labels.append(0)
+                labels.append(0.0)
                 
             window1_batch.append(window1)
             window2_batch.append(window2)
