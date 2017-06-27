@@ -45,6 +45,9 @@ tf.flags.DEFINE_integer("num_dnn_layers", 2, "How many layers for the baseline d
 
 tf.flags.DEFINE_boolean("tied_embeddings_transforms", True, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
 
+tf.flags.DEFINE_boolean("use_wighted_loss_func", False, "Whether the class imbalance of having k negative samples should be countered by weighting the positive examples k-times more.")
+
+
 tf.flags.DEFINE_integer("negative_samples", 2, "How many negative samples to generate.")
 
 tf.flags.DEFINE_integer("batch_size", 64, "Batch Size (default: 64)")
@@ -299,11 +302,11 @@ class UnsupSeech(object):
         
         self.first_call_to_get_batch = True
         
-        with slim.arg_scope([slim.conv2d, slim.fully_connected],  weights_initializer=tf.truncated_normal_initializer(stddev=0.1),
+        with slim.arg_scope([slim.conv2d, slim.fully_connected],  weights_initializer=tf.truncated_normal_initializer(stddev=0.01),
                                             #weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
                                             #weights_regularizer=slim.l2_regularizer(0.0005),
                                             activation_fn=lrelu,
-                                            biases_initializer = tf.constant_initializer(0.1)):
+                                            biases_initializer = tf.constant_initializer(0.01)):
                                             #normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
                                             #normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
             with tf.variable_scope("unsupmodel"):
@@ -442,7 +445,11 @@ class UnsupSeech(object):
                 
                 self.logits = slim.fully_connected(stacked,fc_size)
                 self.logits = slim.fully_connected(self.logits, 1, activation_fn=None)#weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
-                self.cost = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(targets=self.labels, logits=self.logits, pos_weight=(k-1.0)*self.labels+1.0))
+                
+                if FLAGS.use_wighted_loss_func:
+                    self.cost = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(targets=self.labels, logits=self.logits, pos_weight=(k-1.0)*self.labels+1.0))
+                else:
+                    self.cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(targets=self.labels, logits=self.logits))
         
                 self.out = tf.nn.softmax(self.logits)
         
