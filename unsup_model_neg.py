@@ -281,7 +281,7 @@ class UnsupSeech(object):
         return window1_batch,window2_batch,labels
     
     
-    def __init__(self, window_size_1, window_size_2, filter_sizes, num_filters, fc_size, dropout_keep_prob, train_files, is_training=True, create_new_train_dir=True, batch_size=128):
+    def __init__(self, window_size_1, window_size_2, filter_sizes, num_filters, fc_size, dropout_keep_prob, train_files, k, is_training=True, create_new_train_dir=True, batch_size=128):
 
         self.train_files = train_files
 
@@ -442,7 +442,7 @@ class UnsupSeech(object):
                 
                 self.out = slim.fully_connected(stacked,fc_size)
                 self.out = slim.fully_connected(self.out, 1, activation_fn=tf.nn.sigmoid)#weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
-                self.cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=self.labels, logits=self.out))
+                self.cost = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(labels=self.labels, logits=self.out, weights=(k-1.0)*self.labels+1.0))
         
                 if is_training:
                     self.create_training_graphs(create_new_train_dir)
@@ -459,7 +459,7 @@ def train(filelist):
     with tf.device('/gpu:1'):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
             model = UnsupSeech(window_size_1=FLAGS.window1_length, window_size_2=FLAGS.window2_length, filter_sizes=filter_sizes, 
-                                num_filters=FLAGS.num_filters, fc_size=FLAGS.embedding_size, dropout_keep_prob=FLAGS.dropout_keep_prob, train_files = filelist,  batch_size=FLAGS.batch_size)
+                                num_filters=FLAGS.num_filters, fc_size=FLAGS.embedding_size, dropout_keep_prob=FLAGS.dropout_keep_prob, k = FLAGS.negative_samples ,train_files = filelist,  batch_size=FLAGS.batch_size)
             
             restored = False
             if FLAGS.train_dir != "":
