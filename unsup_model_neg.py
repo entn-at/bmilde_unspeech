@@ -449,7 +449,7 @@ class UnsupSeech(object):
                 if FLAGS.use_wighted_loss_func:
                     self.cost = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(targets=self.labels, logits=self.logits, pos_weight=(k-1.0)*self.labels+1.0))
                 else:
-                    self.cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(targets=self.labels, logits=self.logits))
+                    self.cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=self.labels, logits=self.logits))
         
                 self.out = tf.nn.softmax(self.logits)
         
