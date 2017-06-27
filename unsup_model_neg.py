@@ -440,9 +440,11 @@ class UnsupSeech(object):
                 stacked = self.outs[0] - self.outs[1] #tf.concat(self.outs, 1)
                 print('stacked shape:',stacked.get_shape())
                 
-                self.out = slim.fully_connected(stacked,fc_size)
-                self.out = slim.fully_connected(self.out, 1, activation_fn=tf.nn.sigmoid)#weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
-                self.cost = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(targets=self.labels, logits=self.out, pos_weight=(k-1.0)*self.labels+1.0))
+                self.logits = slim.fully_connected(stacked,fc_size)
+                self.logits = slim.fully_connected(self.out, 1, activation_fn=None)#weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
+                self.cost = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(targets=self.labels, logits=self.logits, pos_weight=(k-1.0)*self.labels+1.0))
+        
+                self.out = tf.nn.softmax(self.logits)
         
                 if is_training:
                     self.create_training_graphs(create_new_train_dir)
