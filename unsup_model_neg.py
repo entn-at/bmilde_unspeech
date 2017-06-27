@@ -24,7 +24,7 @@ if sys.version_info[0] == 3:
 
 tf.flags.DEFINE_string("filelist", "filelist.english.train", "Filelist, one wav file per line")
 tf.flags.DEFINE_boolean("end_to_end", True, "Use end-to-end learning (Input is 1D). Otherwise input is 2D like FBANK or MFCC features.")
-tf.flags.DEFINE_boolean("debug", True, "Limits the filelist size and is more debug.")
+tf.flags.DEFINE_boolean("debug", False, "Limits the filelist size and is more debug.")
 
 tf.flags.DEFINE_integer("sample_rate", 16000, "Sample rate of the audio files. Must have the same samplerate for all audio files.") # 100+ ms @ 16kHz
 tf.flags.DEFINE_string("filter_sizes", "512", "Comma-separated filter sizes (default: '200')") # 25ms @ 16kHz
