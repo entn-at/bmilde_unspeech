@@ -442,7 +442,7 @@ class UnsupSeech(object):
                 
                 self.out = slim.fully_connected(stacked,fc_size)
                 self.out = slim.fully_connected(self.out, 1, activation_fn=tf.nn.sigmoid)#weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
-                self.cost = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(labels=self.labels, logits=self.out, weights=(k-1.0)*self.labels+1.0))
+                self.cost = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(labels=self.labels, targets=self.out, weights=(k-1.0)*self.labels+1.0))
         
                 if is_training:
                     self.create_training_graphs(create_new_train_dir)
