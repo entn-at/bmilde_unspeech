@@ -451,7 +451,7 @@ class UnsupSeech(object):
                 else:
                     self.cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=self.labels, logits=self.logits))
         
-                self.out = tf.nn.softmax(self.logits)
+                self.out = tf.nn.sigmoid(self.logits)
         
                 if is_training:
                     self.create_training_graphs(create_new_train_dir)
