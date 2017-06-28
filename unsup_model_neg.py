@@ -26,6 +26,14 @@ tf.flags.DEFINE_string("filelist", "filelist.english.train", "Filelist, one wav 
 tf.flags.DEFINE_boolean("end_to_end", True, "Use end-to-end learning (Input is 1D). Otherwise input is 2D like FBANK or MFCC features.")
 tf.flags.DEFINE_boolean("debug", False, "Limits the filelist size and is more debug.")
 
+tf.flags.DEFINE_boolean("gen_feats", False, "Limits the filelist size and is more debug.")
+
+tf.flags.DEFINE_boolean("generate_kaldi_output_feats", False, "Whether to write out a feature file for Kaldi (containing all utterances), requires a trained model")
+tf.flags.DEFINE_string("output_kaldi_ark", "output_kaldi.ark" , "Output file for Kaldi ark file")
+tf.flags.DEFINE_boolean("generate_challenge_output_feats", False, "Whether to write out a feature file in the unsupervise vhallenge format (containing all utterances), requires a trained model")
+tf.flags.DEFINE_integer("hop_size", 200,"How many training steps to do per checkpoint.")
+tf.flags.DEFINE_string("model_name", "feat1", "Model output name, currently only used for generate_challenge_output_feats")
+
 tf.flags.DEFINE_integer("sample_rate", 16000, "Sample rate of the audio files. Must have the same samplerate for all audio files.") # 100+ ms @ 16kHz
 tf.flags.DEFINE_string("filter_sizes", "512", "Comma-separated filter sizes (default: '200')") # 25ms @ 16kHz
 tf.flags.DEFINE_integer("num_filters", 40, "Number of filters per filter size (default: 40)")
@@ -462,6 +470,56 @@ class UnsupSeech(object):
         feed_dict = {self.input_window_1: input_window_1, self.input_window_2: input_window_2, self.labels: labels}
         _, output, loss = sess.run([self.train_op, self.out, self.cost], feed_dict=feed_dict)
         return  output, loss
+
+def gen_feat_batch(self, sess, windows):
+     feed_dict = {self.input_x: windows}
+     feats = sess.run(self.outs[0], feed_dict=feed_dict)
+     return feats
+    
+def gen_feat(filelist, generate_challenge_output_feats=False, generate_kaldi_output_feats=False):
+    filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
+    with tf.device('/gpu:1'):
+        with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
+            model = UnsupSeech(window_size_1=FLAGS.window1_length, window_size_2=FLAGS.window2_length, filter_sizes=filter_sizes, 
+                    num_filters=FLAGS.num_filters, fc_size=FLAGS.embedding_size, dropout_keep_prob=FLAGS.dropout_keep_prob, k = FLAGS.negative_samples, train_files = filelist,  batch_size=FLAGS.batch_size)
+            
+            if FLAGS.train_dir != "":
+                print('FLAGS.train_dir',FLAGS.train_dir)
+                ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
+                print('ckpt:',ckpt)
+                if ckpt and ckpt.model_checkpoint_path:
+                    print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
+                    model.saver.restore(sess, ckpt.model_checkpoint_path)
+                    first_file = True
+                    
+                    window_length_seconds = float(FLAGS.window1_length)/float(FLAGS.sample_rate)
+                    model_params =  '_win' + str(FLAGS.window1_length) + '_f' + str(FLAGS.num_filters) + '_fc' + str(FLAGS.fc_size) + 'dnn' + str(FLAGS.num_dnn_layers)
+                    
+                    # model is now loaded with the trained parameters
+                    for myfile in filelist:
+
+                        if generate_challenge_output_feats:
+                            input_signal = training_data[myfile]
+                            hop_size = int(float(FLAGS.window1_length) / 2.5)
+                            print('Generate features for', myfile , 'window size:', FLAGS.window1_length , 'hop size:', hop_size)
+                            hop_size_seconds = float(hop_size)/float(FLAGS.sample_rate)
+                            feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window1_length, hop_size))
+                            out_filename = myfile.replace('.wav', '').replace('zerospeech2017/','zerospeech2017/'+FLAGS.model_name+model_params+'/') + '.fea'
+                            print('Writing to ', out_filename)
+                            utils.writeZeroSpeechFeatFile(feat, out_filename, window_length_seconds, hop_size_seconds )
+
+                        if FLAGS.generate_kaldi_output_feats:
+                            input_signal = training_data[myfile]
+                            hop_size = FLAGS.kaldi_hopsize
+                            print('Generate KALDI features for', myfile , 'window size:', FLAGS.window1_length , 'hop size:', hop_size)
+                            feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window1_length, hop_size))
+                            utils.writeArkTextFeatFile(feat,  myfile.replace('.wav', '') , FLAGS.output_kaldi_ark, not first_file)
+                            first_file = False
+
+                else:
+                    print("Could not open training dir: %s" % FLAGS.train_dir)
+            else:
+                print("Train_dir parameter is empty")    
     
 def train(filelist):
     filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
@@ -573,6 +631,8 @@ if __name__ == "__main__":
         signal = np.fmin(1.0,signal)
         
         training_data[myfile] = signal
-    
+        
+    if FLAGS.gen_feats:
+        gen_feat(filelist, generate_challenge_output_feats=FLAGS.generate_challenge_output_feats, generate_kaldi_output_feats=FLAGS.generate_kaldi_output_feats)
     #todo add eval and writing out features
     train(filelist)
