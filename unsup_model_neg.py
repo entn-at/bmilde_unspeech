@@ -37,8 +37,12 @@ tf.flags.DEFINE_string("model_name", "feat1", "Model output name, currently only
 tf.flags.DEFINE_integer("sample_rate", 16000, "Sample rate of the audio files. Must have the same samplerate for all audio files.") # 100+ ms @ 16kHz
 tf.flags.DEFINE_string("filter_sizes", "512", "Comma-separated filter sizes (default: '200')") # 25ms @ 16kHz
 tf.flags.DEFINE_integer("num_filters", 40, "Number of filters per filter size (default: 40)")
-tf.flags.DEFINE_integer("window1_length", 1024, "First window length, samples or frames") # 100+ ms @ 16kHz
-tf.flags.DEFINE_integer("window2_length", 1024, "Second window length, samples or frames") # 100+ ms @ 16kHz
+tf.flags.DEFINE_integer("window_length", 1024, "Main window length, samples (end-to-end) or frames (FBANK)") # 100+ ms @ 16kHz
+tf.flags.DEFINE_integer("window_neg_length", 1024, "Context window length, samples (end-to-end) or frames (FBANK)") # 100+ ms @ 16kHz
+
+tf.flags.DEFINE_integer("left_contexts", 2, "How many left context windows")
+tf.flags.DEFINE_integer("right_contexts", 2, "How many right context windows")
+
 tf.flags.DEFINE_integer("embedding_size", 256 , "Fully connected size at the end of the network.")
 
 tf.flags.DEFINE_boolean("with_vgg16", False, "Whether to use a vgg16 network for the embeddings computation.")
@@ -51,10 +55,9 @@ tf.flags.DEFINE_integer("dense_block_filters_transition", 4, "Number of filters 
 
 tf.flags.DEFINE_integer("num_dnn_layers", 2, "How many layers for the baseline dnn.")
 
-tf.flags.DEFINE_boolean("tied_embeddings_transforms", True, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
-
-tf.flags.DEFINE_boolean("use_wighted_loss_func", False, "Whether the class imbalance of having k negative samples should be countered by weighting the positive examples k-times more.")
-
+tf.flags.DEFINE_boolean("tied_embeddings_transforms", False, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
+tf.flags.DEFINE_boolean("use_wighted_loss_func", True, "Whether the class imbalance of having k negative samples should be countered by weighting the positive examples k-times more.")
+tf.flags.DEFINE_boolean("use_dot_combine", True, "Define the loss function over the logits of the dot product of window and context window.")
 
 tf.flags.DEFINE_integer("negative_samples", 2, "How many negative samples to generate.")
 
@@ -236,75 +239,83 @@ class UnsupSeech(object):
 
     # does a batch where one of the examples are two windows with consecutive signals and k randomly selected window_2s
     #, with a fixed window1
-    def get_batch_k_samples(self, filelist, window_size_1, window_size_2, k=4):            
-        window1_batch = []
-        window2_batch = []
+    def get_batch_k_samples(self, filelist, window_length, window_neg_length, left_contexts=0, right_contexts=1 , k=4):            
+        window_batch = []
+        window_neg_batch = []
         labels = []
         
         for i in xrange(FLAGS.batch_size*(k+1)):
-            if i%(k+1)==0: 
-                combined_sample = self.get_random_audiosample(window_size_1+window_size_2)
-                window1 = combined_sample[:window_size_1]
-                window2 = combined_sample[window_size_1:]
-                #assign label 1, if both windows are consecutive
-                labels.append(1.0)
-                
+            if i%(k+1)==0:
+                combined_sample = self.get_random_audiosample(window_length+window_neg_length*(left_contexts+right_contexts))
+                # getting all the context pairs, e.g. context_num goes from -2 to 2 for left_contexts=2 and right_contexts=2
+                center_window_pos = window_neg_length*left_contexts
+                for context_num in xrange(-1*left_contexts, right_contexts+1):
+                    if context_num < 0:
+                        neg_pos = (left_contexts+context_num)*window_neg_length
+                    elif context_num > 0:
+                        neg_pos = center_window_pos+window_length+(context_num-1)*window_neg_length
+                    if context_num !=0:
+                        window = combined_sample[center_window_pos:center_window_pos+window_length]
+                        window_neg = combined_sample[neg_pos:neg_pos+window_neg_length] 
+                        #assign label 1, if both windows are consecutive    
+                        labels.append(1.0)
             else:
-                window1 = self.get_random_audiosample(window_size_1)
-                window2 = self.get_random_audiosample(window_size_2)
+                # just select two random samples. Todo, other sampling strategies?
+                window = self.get_random_audiosample(window_length)
+                window_neg = self.get_random_audiosample(window_neg_length)
                 #assign label 0, if both windows are randomly selected
                 labels.append(0.0)
                 
-            window1_batch.append(window1)
-            window2_batch.append(window2)
+            window_batch.append(window)
+            window_neg_batch.append(window_neg)
 
         labels = np.asarray(labels).reshape(-1,1)
 
         #if self.first_call_to_get_batch:
-        #    print("window1_batch,",[elem[:5] for elem in window1_batch],"window2_batch,",[elem[:5] for elem in window2_batch],"labels",labels) 
+        #    print("window_batch,",[elem[:5] for elem in window_batch],"window_neg_batch,",[elem[:5] for elem in window_neg_batch],"labels",labels) 
         #    self.first_call_to_get_batch = False
 
-        return window1_batch,window2_batch,labels
+        return window_batch,window_neg_batch,labels
      
     # similar to get_batch_k_samples, but with true_context_window2_probability we select either two neighbooring pairs or two random audio snippets
-    def get_batch_randomized(self, filelist, window_size_1, window_size_2, true_context_window2_probability=0.5):            
-        window1_batch = []
-        window2_batch = []
+    def get_batch_randomized(self, filelist, window_length, window_neg_length, true_context_window2_probability=0.5):            
+        window_batch = []
+        window_neg_batch = []
         labels = []
         
         for i in xrange(FLAGS.batch_size):
             if np.random.random_sample() <= true_context_window2_probability: 
-                combined_sample = self.get_random_audiosample(window_size_1+window_size_2)
-                window1 = combined_sample[:window_size_1]
-                window2 = combined_sample[window_size_1:]
+                combined_sample = self.get_random_audiosample(window_length+window_neg_length)
+                window1 = combined_sample[:window_length]
+                window2 = combined_sample[window_length:]
                 #assign label 1, if both windows are consecutive
                 labels.append(1.0)
                 
             else:
-                window1 = self.get_random_audiosample(window_size_1)
-                window2 = self.get_random_audiosample(window_size_2)
+                window1 = self.get_random_audiosample(window_length)
+                window2 = self.get_random_audiosample(window_neg_length)
                 #assign label 0, if both windows are randomly selected 
                 labels.append(0.0)
                 
-            window1_batch.append(window1)
-            window2_batch.append(window2)
+            window_batch.append(window1)
+            window_neg_batch.append(window2)
 
-        return window1_batch,window2_batch,labels
+        return window_batch,window_neg_batch,labels
     
     
-    def __init__(self, window_size_1, window_size_2, filter_sizes, num_filters, fc_size, dropout_keep_prob, train_files, k, is_training=True, create_new_train_dir=True, batch_size=128):
+    def __init__(self, window_length, window_neg_length, filter_sizes, num_filters, fc_size, dropout_keep_prob, train_files, k, is_training=True, create_new_train_dir=True, batch_size=128):
 
         self.train_files = train_files
 
-        self.window_size_1 = window_size_1
-        self.window_size_2 = window_size_2
+        self.window_length = window_length
+        self.window_neg_length = window_neg_length
         self.fc_size = fc_size
 
         # None -> automatically sets the dimension to batch_size
         # window 1 is fixed
-        self.input_window_1 = tf.placeholder(tf.float32, [None, window_size_1], name="input_window_1")
+        self.input_window_1 = tf.placeholder(tf.float32, [None, window_length], name="input_window_1")
         # window 2 is either consecutive, or randomly sampled
-        self.input_window_2 = tf.placeholder(tf.float32, [None, window_size_2], name="input_window_2")
+        self.input_window_2 = tf.placeholder(tf.float32, [None, window_neg_length], name="input_window_2")
         
         self.labels = tf.placeholder(tf.float32, [None, 1], name="labels")
         
@@ -446,13 +457,16 @@ class UnsupSeech(object):
                         self.fc1 = slim.fully_connected(self.flattened_pooled, fc_size)#weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
                         print('fc1 shape:',self.fc1.get_shape())
                         self.outs.append(self.fc1)
-                        
-                #alternative self.outs[0] - self.outs[1]
-                stacked = self.outs[0] - self.outs[1] #tf.concat(self.outs, 1)
-                print('stacked shape:',stacked.get_shape())
                 
-                self.logits = slim.fully_connected(stacked,fc_size)
-                self.logits = slim.fully_connected(self.logits, 1, activation_fn=None)#weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
+                if FLAGS.use_dot_combine:
+                    tf.reduce_sum( tf.multiply(self.outs[0], self.outs[1]), 1, keep_dims=True)
+                else:
+                    #alternative self.outs[0] - self.outs[1]
+                    stacked = self.outs[0] - self.outs[1] #tf.concat(self.outs, 1)
+                    print('stacked shape:',stacked.get_shape())
+                    
+                    self.logits = slim.fully_connected(stacked,fc_size)
+                    self.logits = slim.fully_connected(self.logits, 1, activation_fn=None)#weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
                 
                 if FLAGS.use_wighted_loss_func:
                     self.cost = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(targets=self.labels, logits=self.logits, pos_weight=(k-1.0)*self.labels+1.0))
@@ -480,7 +494,7 @@ def gen_feat(filelist, generate_challenge_output_feats=False, generate_kaldi_out
     filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
     with tf.device('/gpu:1'):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
-            model = UnsupSeech(window_size_1=FLAGS.window1_length, window_size_2=FLAGS.window2_length, filter_sizes=filter_sizes, 
+            model = UnsupSeech(window_length=FLAGS.window_length, window_neg_length=FLAGS.window_neg_length, filter_sizes=filter_sizes, 
                     num_filters=FLAGS.num_filters, fc_size=FLAGS.embedding_size, dropout_keep_prob=FLAGS.dropout_keep_prob, k = FLAGS.negative_samples, train_files = filelist,  batch_size=FLAGS.batch_size)
             
             if FLAGS.train_dir != "":
@@ -492,18 +506,18 @@ def gen_feat(filelist, generate_challenge_output_feats=False, generate_kaldi_out
                     model.saver.restore(sess, ckpt.model_checkpoint_path)
                     first_file = True
                     
-                    window_length_seconds = float(FLAGS.window1_length)/float(FLAGS.sample_rate)
-                    model_params =  '_win' + str(FLAGS.window1_length) + '_f' + str(FLAGS.num_filters) + '_fc' + str(FLAGS.fc_size) + 'dnn' + str(FLAGS.num_dnn_layers)
+                    window_length_seconds = float(FLAGS.window_length)/float(FLAGS.sample_rate)
+                    model_params =  '_win' + str(FLAGS.window_length) + '_f' + str(FLAGS.num_filters) + '_fc' + str(FLAGS.fc_size) + 'dnn' + str(FLAGS.num_dnn_layers)
                     
                     # model is now loaded with the trained parameters
                     for myfile in filelist:
 
                         if generate_challenge_output_feats:
                             input_signal = training_data[myfile]
-                            hop_size = int(float(FLAGS.window1_length) / 2.5)
-                            print('Generate features for', myfile , 'window size:', FLAGS.window1_length , 'hop size:', hop_size)
+                            hop_size = int(float(FLAGS.window_length) / 2.5)
+                            print('Generate features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size)
                             hop_size_seconds = float(hop_size)/float(FLAGS.sample_rate)
-                            feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window1_length, hop_size))
+                            feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size))
                             out_filename = myfile.replace('.wav', '').replace('zerospeech2017/','zerospeech2017/'+FLAGS.model_name+model_params+'/') + '.fea'
                             print('Writing to ', out_filename)
                             utils.writeZeroSpeechFeatFile(feat, out_filename, window_length_seconds, hop_size_seconds )
@@ -511,8 +525,8 @@ def gen_feat(filelist, generate_challenge_output_feats=False, generate_kaldi_out
                         if FLAGS.generate_kaldi_output_feats:
                             input_signal = training_data[myfile]
                             hop_size = FLAGS.kaldi_hopsize
-                            print('Generate KALDI features for', myfile , 'window size:', FLAGS.window1_length , 'hop size:', hop_size)
-                            feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window1_length, hop_size))
+                            print('Generate KALDI features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size)
+                            feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size))
                             utils.writeArkTextFeatFile(feat,  myfile.replace('.wav', '') , FLAGS.output_kaldi_ark, not first_file)
                             first_file = False
 
@@ -525,7 +539,7 @@ def train(filelist):
     filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
     with tf.device('/gpu:1'):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
-            model = UnsupSeech(window_size_1=FLAGS.window1_length, window_size_2=FLAGS.window2_length, filter_sizes=filter_sizes, 
+            model = UnsupSeech(window_length=FLAGS.window_length, window_neg_length=FLAGS.window_neg_length, filter_sizes=filter_sizes, 
                                 num_filters=FLAGS.num_filters, fc_size=FLAGS.embedding_size, dropout_keep_prob=FLAGS.dropout_keep_prob, k = FLAGS.negative_samples ,train_files = filelist,  batch_size=FLAGS.batch_size)
             
             restored = False
@@ -561,13 +575,17 @@ def train(filelist):
                 current_step += 1
 
                 if current_step % FLAGS.steps_per_summary == 0 and summary_writer is not None:
-                    #input_window_1, input_window_2, labels = model.get_batch_k_samples(filelist=filelist, window_size_1=FLAGS.window1_length, window_size_2=FLAGS.window2_length, k=FLAGS.negative_samples)
-                    summary_str = sess.run(model.train_summary_op, feed_dict={model.input_window_1:input_window_1, model.input_window_2:input_window_2, model.labels: labels})
+                    #input_window_1, input_window_2, labels = model.get_batch_k_samples(filelist=filelist, window_length=FLAGS.window_length, window_neg_length=FLAGS.window_neg_length, k=FLAGS.negative_samples)
+                    summary_str = sess.run(model.train_summary_op, feed_dict={model.input_window_1:input_window_1,
+                                                                              model.input_window_2:input_window_2, model.labels: labels})
                     summary_writer.add_summary(summary_str, current_step)
 
                 # Get a batch and make a step.
                 start_time = time.time()
-                input_window_1, input_window_2, labels = model.get_batch_k_samples(filelist=filelist, window_size_1=FLAGS.window1_length, window_size_2=FLAGS.window2_length, k=FLAGS.negative_samples)
+                input_window_1, input_window_2, labels = model.get_batch_k_samples(filelist=filelist, window_length=FLAGS.window_length, 
+                                                                                   window_neg_length=FLAGS.window_neg_length, left_contexts=FLAGS.left_contexts,
+                                                                                   right_contexts=FLAGS.right_contexts, k=FLAGS.negative_samples)
+                
                 out, train_loss = model.step(sess, input_window_1, input_window_2, labels)
                 train_losses.append(train_loss)
 
