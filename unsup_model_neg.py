@@ -53,7 +53,7 @@ tf.flags.DEFINE_integer("dense_block_filters", 5,  "Number of filters inside a c
 tf.flags.DEFINE_integer("dense_block_layers_connected", 3,  "Number of layers inside dense block.")
 tf.flags.DEFINE_integer("dense_block_filters_transition", 4, "Number of filters inside a conv2d in a dense block transition.")
 
-tf.flags.DEFINE_integer("num_dnn_layers", 2, "How many layers for the baseline dnn.")
+tf.flags.DEFINE_integer("num_dnn_layers", 3, "How many layers for the baseline dnn.")
 
 tf.flags.DEFINE_boolean("tied_embeddings_transforms", False, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
 tf.flags.DEFINE_boolean("use_wighted_loss_func", True, "Whether the class imbalance of having k negative samples should be countered by weighting the positive examples k-times more.")
@@ -225,10 +225,11 @@ class UnsupSeech(object):
             self.train_summary_op = tf.summary.merge_all()
             train_summary_dir = os.path.join(self.out_dir, "summaries", "train")
     
-    def get_random_audiosample(self, window_size):
+    def get_random_audiosample(self, window_size, random_file_num=None):
         filelist_size = len(filelist)
         
-        random_file_num = int(math.floor(np.random.random_sample() * filelist_size))
+        if random_file_num:
+            random_file_num = int(math.floor(np.random.random_sample() * filelist_size))
         random_file = filelist[random_file_num]
         audio_data = training_data[random_file]
         audio_len = audio_data.shape[0] - window_size
@@ -260,9 +261,10 @@ class UnsupSeech(object):
                         #assign label 1, if both windows are consecutive    
                         labels.append(1.0)
             else:
+                random_file_num = int(math.floor(np.random.random_sample() * len(filelist)))
                 # just select two random samples. Todo, other sampling strategies?
-                window = self.get_random_audiosample(window_length)
-                window_neg = self.get_random_audiosample(window_neg_length)
+                window = self.get_random_audiosample(window_length, random_file_num=random_file_num)
+                window_neg = self.get_random_audiosample(window_neg_length, random_file_num=random_file_num)
                 #assign label 0, if both windows are randomly selected
                 labels.append(0.0)
                 
