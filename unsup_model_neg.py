@@ -51,6 +51,7 @@ tf.flags.DEFINE_integer("dense_block_filters", 5,  "Number of filters inside a c
 tf.flags.DEFINE_integer("dense_block_layers_connected", 3,  "Number of layers inside dense block.")
 tf.flags.DEFINE_integer("dense_block_filters_transition", 4, "Number of filters inside a conv2d in a dense block transition.")
 
+tf.flags.DEFINE_integer("num_highway_layers", 20, "How many layers for the highway dnn.")
 tf.flags.DEFINE_integer("num_dnn_layers", 3, "How many layers for the baseline dnn.")
 
 tf.flags.DEFINE_boolean("tied_embeddings_transforms", False, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
@@ -181,6 +182,19 @@ def vgg16(inputs):
     #net = slim.dropout(net, 0.5, scope='dropout7')
     #net = slim.fully_connected(net, 1000, activation_fn=None, scope='fc8')
   return net
+
+def highway_layer(x, size, activation, carry_bias=-1.0):
+    W, b = weight_bias([size, size], [size])
+
+    with tf.name_scope('transform_gate'):
+        W_T, b_T = weight_bias([size, size], bias_init=carry_bias)
+
+    H = activation(tf.matmul(x, W) + b, name='activation')
+    T = tf.sigmoid(tf.matmul(x, W_T) + b_T, name='transform_gate')
+    C = tf.sub(1.0, T, name="carry_gate")
+
+    y = tf.add(tf.mul(H, T), tf.mul(x, C), name='y') # y = (H * T) + (x * C)
+    return y
 
 class UnsupSeech(object):
     """
@@ -412,7 +426,7 @@ class UnsupSeech(object):
                         #('pool1 shape:', TensorShape([Dimension(None), Dimension(1), Dimension(7), Dimension(80)]))
             
                         needs_flattening = True
-                        if FLAGS.with_dense_network:
+                        if FLAGS.embedding_transformation == "DenseNet":
                             
                             #with slim.arg_scope([slim.conv2d, slim.fully_connected], weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
                             #                    weights_regularizer=slim.l2_regularizer(0.0005),
@@ -430,7 +444,7 @@ class UnsupSeech(object):
         
                             print('pool shape after dense blocks:', pooled.get_shape())
         
-                        if FLAGS.with_vgg16:
+                        if FLAGS.embedding_transformation == "Vgg16":
                             pooled = vgg16(pooled)
                             print('pool shape after vgg16 block:', pooled.get_shape())
         
@@ -440,8 +454,13 @@ class UnsupSeech(object):
                             self.flattened_pooled = tf.reshape(pooled, [-1, flattened_size])
                         else:
                             self.flattened_pooled = pooled
+                        
+                        if FLAGS.embedding_transformation == "HighwayDnn":
+                            self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*4)
+                            for x in range(FLAGS.num_highway_layers):
+                                self.flattened_pooled = highway_layer(self.flattened_pooled, fc_size*4, lrelu, carry_bias=-1.0)
                             
-                        if FLAGS.with_baseline_dnn:
+                        if FLAGS.embedding_transformation == "BaselineDnn":
                             #with slim.arg_scope([slim.conv2d, slim.fully_connected], weights_initializer=tf.truncated_normal_initializer(0.0, 0.01)):
                                                 #weights_regularizer=slim.l2_regularizer(0.0005),
                                                 #biases_initializer = tf.constant_initializer(0.01) if not FLAGS.batch_normalization else None,
