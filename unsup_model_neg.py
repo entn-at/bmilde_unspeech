@@ -45,9 +45,7 @@ tf.flags.DEFINE_integer("right_contexts", 2, "How many right context windows")
 
 tf.flags.DEFINE_integer("embedding_size", 256 , "Fully connected size at the end of the network.")
 
-tf.flags.DEFINE_boolean("with_vgg16", False, "Whether to use a vgg16 network for the embeddings computation.")
-tf.flags.DEFINE_boolean("with_dense_network", False,  "Whether to use a dense conv network for the embeddings computation.")
-tf.flags.DEFINE_boolean("with_baseline_dnn", True,  "Whether to use a baseline dnn network for the embeddings computation.")
+tf.flags.DEFINE_string("embedding_transformation", "BaselineDnn", "What network to use for the embeddings computation. Vgg16, DenseNet, BaselineDnn, HighwayDnn.")
 
 tf.flags.DEFINE_integer("dense_block_filters", 5,  "Number of filters inside a conv2d in a dense block.")
 tf.flags.DEFINE_integer("dense_block_layers_connected", 3,  "Number of layers inside dense block.")
