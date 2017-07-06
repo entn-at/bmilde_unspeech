@@ -56,12 +56,12 @@ tf.flags.DEFINE_integer("dense_block_filters_transition", 4, "Number of filters 
 tf.flags.DEFINE_integer("num_dnn_layers", 3, "How many layers for the baseline dnn.")
 
 tf.flags.DEFINE_boolean("tied_embeddings_transforms", False, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
-tf.flags.DEFINE_boolean("use_wighted_loss_func", True, "Whether the class imbalance of having k negative samples should be countered by weighting the positive examples k-times more.")
+tf.flags.DEFINE_boolean("use_wighted_loss_func", False, "Whether the class imbalance of having k negative samples should be countered by weighting the positive examples k-times more.")
 tf.flags.DEFINE_boolean("use_dot_combine", True, "Define the loss function over the logits of the dot product of window and context window.")
 
-tf.flags.DEFINE_integer("negative_samples", 2, "How many negative samples to generate.")
+tf.flags.DEFINE_integer("negative_samples", 4, "How many negative samples to generate.")
 
-tf.flags.DEFINE_integer("batch_size", 64, "Batch Size (default: 64)")
+tf.flags.DEFINE_integer("batch_size", 32, "Batch Size (default: 64)")
 tf.flags.DEFINE_boolean("batch_normalization", False, "Whether to use batch normalization.")
 
 tf.flags.DEFINE_float("dropout_keep_prob", 1.0 , "Dropout keep probability")
@@ -228,7 +228,7 @@ class UnsupSeech(object):
     def get_random_audiosample(self, window_size, random_file_num=None):
         filelist_size = len(filelist)
         
-        if random_file_num:
+        if random_file_num is None:
             random_file_num = int(math.floor(np.random.random_sample() * filelist_size))
         random_file = filelist[random_file_num]
         audio_data = training_data[random_file]
@@ -260,6 +260,8 @@ class UnsupSeech(object):
                         window_neg = combined_sample[neg_pos:neg_pos+window_neg_length] 
                         #assign label 1, if both windows are consecutive    
                         labels.append(1.0)
+                        window_batch.append(window)
+                        window_neg_batch.append(window_neg)
             else:
                 random_file_num = int(math.floor(np.random.random_sample() * len(filelist)))
                 # just select two random samples. Todo, other sampling strategies?
@@ -268,8 +270,8 @@ class UnsupSeech(object):
                 #assign label 0, if both windows are randomly selected
                 labels.append(0.0)
                 
-            window_batch.append(window)
-            window_neg_batch.append(window_neg)
+                window_batch.append(window)
+                window_neg_batch.append(window_neg)
 
         labels = np.asarray(labels).reshape(-1,1)
 
@@ -461,7 +463,7 @@ class UnsupSeech(object):
                         self.outs.append(self.fc1)
                 
                 if FLAGS.use_dot_combine:
-                    tf.reduce_sum( tf.multiply(self.outs[0], self.outs[1]), 1, keep_dims=True)
+                    self.logits = tf.reduce_sum( tf.multiply(self.outs[0], self.outs[1]), 1, keep_dims=True)
                 else:
                     #alternative self.outs[0] - self.outs[1]
                     stacked = self.outs[0] - self.outs[1] #tf.concat(self.outs, 1)
