@@ -198,9 +198,9 @@ def highway_layer(x, size, activation, carry_bias=-1.0):
 
     H = activation(tf.matmul(x, W) + b, name='activation')
     T = tf.sigmoid(tf.matmul(x, W_T) + b_T, name='transform_gate')
-    C = tf.sub(1.0, T, name="carry_gate")
+    C = tf.subtract(1.0, T, name="carry_gate")
 
-    y = tf.add(tf.mul(H, T), tf.mul(x, C), name='y') # y = (H * T) + (x * C)
+    y = tf.add(tf.multiply(H, T), tf.multiply(x, C), name='y') # y = (H * T) + (x * C)
     return y
 
 class UnsupSeech(object):
