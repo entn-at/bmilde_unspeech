@@ -51,7 +51,7 @@ tf.flags.DEFINE_integer("dense_block_filters", 5,  "Number of filters inside a c
 tf.flags.DEFINE_integer("dense_block_layers_connected", 3,  "Number of layers inside dense block.")
 tf.flags.DEFINE_integer("dense_block_filters_transition", 4, "Number of filters inside a conv2d in a dense block transition.")
 
-tf.flags.DEFINE_integer("num_highway_layers", 10, "How many layers for the highway dnn.")
+tf.flags.DEFINE_integer("num_highway_layers", 6, "How many layers for the highway dnn.")
 tf.flags.DEFINE_integer("num_dnn_layers", 3, "How many layers for the baseline dnn.")
 
 tf.flags.DEFINE_boolean("tied_embeddings_transforms", False, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
@@ -76,7 +76,7 @@ tf.flags.DEFINE_integer("checkpoints_per_save", 1,
 tf.flags.DEFINE_boolean("allow_soft_placement", True, "Allow device soft device placement")
 tf.flags.DEFINE_boolean("log_device_placement", False, "Log placement of ops on devices")
 
-tf.flags.DEFINE_float("learn_rate", 5e-4, "Learn rate for the optimizer")
+tf.flags.DEFINE_float("learn_rate", 1e-4, "Learn rate for the optimizer")
 tf.flags.DEFINE_float("gradient_clipping", 5.0, "Clip the gradient at larger +/- this value.")
 
 tf.flags.DEFINE_boolean("log_tensorboard", True, "Log training process if this is set to True.")
