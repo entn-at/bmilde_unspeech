@@ -183,6 +183,13 @@ def vgg16(inputs):
     #net = slim.fully_connected(net, 1000, activation_fn=None, scope='fc8')
   return net
 
+# highway impl from https://github.com/fomorians/highway-fcn/blob/master/main.py
+
+def weight_bias(W_shape, b_shape, bias_init=0.1, stddev=0.1):
+    W = tf.Variable(tf.truncated_normal(W_shape, stddev=0.1), name='weight')
+    b = tf.Variable(tf.constant(bias_init, shape=b_shape), name='bias')
+    return W, b
+
 def highway_layer(x, size, activation, carry_bias=-1.0):
     W, b = weight_bias([size, size], [size])
 
