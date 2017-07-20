@@ -14,6 +14,7 @@ import sys
 import time
 import utils
 import math
+import kaldi_io
 
 from sklearn.metrics import accuracy_score
 
@@ -82,6 +83,8 @@ tf.flags.DEFINE_float("gradient_clipping", 5.0, "Clip the gradient at larger +/-
 tf.flags.DEFINE_boolean("log_tensorboard", True, "Log training process if this is set to True.")
 
 tf.flags.DEFINE_string("train_dir", "/srv/data/milde/unspeech_models/neg/", "Training dir to resume training from. If empty, a new one will be created.")
+tf.flags.DEFINE_string("output_feat_file", "/srv/data/milde/unspeech_models/feats/", "Necessary suffixes will get appended (depending on output format).")
+tf.flags.DEFINE_string("output_feat_format", "kaldi_bin", "Feat format")
 
 FLAGS = tf.flags.FLAGS
 
@@ -518,7 +521,7 @@ def gen_feat_batch(self, sess, windows):
      feats = sess.run(self.outs[0], feed_dict=feed_dict)
      return feats
     
-def gen_feat(filelist, generate_challenge_output_feats=False, generate_kaldi_output_feats=False):
+def gen_feat(filelist, feats_outputfile, feats_format):
     filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
     with tf.device('/gpu:1'):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
@@ -535,12 +538,17 @@ def gen_feat(filelist, generate_challenge_output_feats=False, generate_kaldi_out
                     first_file = True
                     
                     window_length_seconds = float(FLAGS.window_length)/float(FLAGS.sample_rate)
-                    model_params =  '_win' + str(FLAGS.window_length) + '_f' + str(FLAGS.num_filters) + '_fc' + str(FLAGS.fc_size) + 'dnn' + str(FLAGS.num_dnn_layers)
+                    model_params = ('e2e' if FLAGS.end_to_end else '') + '_trans' + FLAGS.embedding_transformation + '_win' + str(FLAGS.window_length) + '_lcontexts' + FLAGS.left_contexts + '_rcontexts' + FLAGS.right_contexts + \
+                                    '_flts' + str(FLAGS.num_filters) + '_embsize' + str(FLAGS.fc_size) + ('dnn' + str(FLAGS.num_dnn_layers) if FLAGS.embedding_transformation=='BaselineDnn' else '') + \
+                                    ('highwaydnn' + str(FLAGS.num_highway_layers) if FLAGS.embedding_transformation=='HighwayDnn' else '') + \
+                                    ('dot_combine' if FLAGS.dot_combine else '')
+                    
+                    outputfile = feats_outputfile.replace('%model_params', model_params)
                     
                     # model is now loaded with the trained parameters
                     for myfile in filelist:
 
-                        if generate_challenge_output_feats:
+                        if feats_type == "unsup_challenge2017":
                             input_signal = training_data[myfile]
                             hop_size = int(float(FLAGS.window_length) / 2.5)
                             print('Generate features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size)
@@ -550,12 +558,22 @@ def gen_feat(filelist, generate_challenge_output_feats=False, generate_kaldi_out
                             print('Writing to ', out_filename)
                             utils.writeZeroSpeechFeatFile(feat, out_filename, window_length_seconds, hop_size_seconds )
 
-                        if FLAGS.generate_kaldi_output_feats:
+                        if feats_type == "kaldi_text":
                             input_signal = training_data[myfile]
                             hop_size = FLAGS.kaldi_hopsize
-                            print('Generate KALDI features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size)
+                            print('Generate KALDI text features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size)
                             feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size))
                             utils.writeArkTextFeatFile(feat,  myfile.replace('.wav', '') , FLAGS.output_kaldi_ark, not first_file)
+                            first_file = False
+                            
+                        if feats_type == "kaldi_bin":           
+                            input_signal = training_data[myfile]
+                            hop_size = FLAGS.kaldi_hopsize
+                            print('Generate KALDI bin features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size)
+                            feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size))
+                            print('Done, writing to ' + outputfile)
+                            pointers = writeArk(outputfile + '.ark', [feat], [file2id[myfile]], append = not first_file)
+                            writeScp(outputfile + '.scp', [file2id[myfile]], pointers, append=not first_file)
                             first_file = False
 
                 else:
@@ -658,8 +676,8 @@ if __name__ == "__main__":
     FLAGS._parse_flags()
     print("\nParameters:")
     print(get_FLAGS_params_as_str())
-    filelist = utils.loadIdFile(FLAGS.filelist, 3000000)
-    print(filelist)
+    utt_ids, filelist = utils.loadIdFile(FLAGS.filelist, 3000000)
+    print(zip(utt_ids, filelist))
 
     print('continuing training in 5 seconds...')
     time.sleep(5)
@@ -667,7 +685,7 @@ if __name__ == "__main__":
     if FLAGS.debug:
         filelist = filelist[:10]
 
-    for myfile in filelist:
+    for utt_id, myfile in zip(utt_ids,filelist):
 #    for myfile in [filelist[-1]]:   
         print('Loading:',myfile)
         signal = np.float32(utils.getSignal(myfile)[0])
@@ -677,6 +695,7 @@ if __name__ == "__main__":
         signal = np.fmin(1.0,signal)
         
         training_data[myfile] = signal
+        file2id[myfile] = utt_id
         
     if FLAGS.gen_feats:
         gen_feat(filelist, generate_challenge_output_feats=FLAGS.generate_challenge_output_feats, generate_kaldi_output_feats=FLAGS.generate_kaldi_output_feats)
