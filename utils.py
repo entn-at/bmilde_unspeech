@@ -7,6 +7,7 @@ import tensorflow as tf
 import os.path
 import gzip
 import bz2
+from scikits.audiolab import Sndfile
 
 def smart_open(filename, mode = 'rb', *args, **kwargs):
     '''
@@ -87,11 +88,19 @@ def loadIdFile(idfile,use_no_files=-1):
     #ids = [myid for myid in ids if os.path.ispath(myid)]
     return utt_ids, wav_files
 
-def getSignal(utterance):
+def getSignalOld(utterance):
     spf = wave.open(utterance, 'r')
     sound_info = spf.readframes(-1)
     signal = np.fromstring(sound_info, 'Int16')
     return signal, spf.getframerate()
+
+# This is needed since the old loader had problems with NIST headers from TIMIT. 
+# See also https://stackoverflow.com/questions/10187043/read-nist-wav-file-in-timit-database-into-python-numpy-array
+def getSignal(utterance):
+    f = Sndfile(utterance, 'r')
+    signal = f.read_frames(f.nframes)
+    print(utterance, 'dtype:', signal.dtype, 'nframes:', f.nframes, 'min:', min(signal), 'max:', max(signal))
+    return signal, f.samplerate
 
 def writeSignal(signal, myfile, rate=16000, do_decode_mulaw=False):
     if do_decode_mulaw:
