@@ -698,10 +698,12 @@ if __name__ == "__main__":
             print('Warning framerate != 16000:', framerate)
        
         if signal.dtype != 'float32':
-        #convert and clip to -1.0 - 1.0 range
-        signal /= 32768.0
-        signal = np.fmax(-1.0,signal)
-        signal = np.fmin(1.0,signal)
+            print('dytpe is not float32', signal.dtype)
+            signal = signal.astype('float32')
+            #convert and clip to -1.0 - 1.0 range
+            signal /= 32768.0
+            signal = np.fmax(-1.0,signal)
+            signal = np.fmin(1.0,signal)
         
         training_data[myfile] = signal
         
