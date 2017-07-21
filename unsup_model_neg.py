@@ -550,7 +550,7 @@ def gen_feat(filelist, feats_outputfile, feats_format):
                     # model is now loaded with the trained parameters
                     for myfile in filelist:
 
-                        if feats_type == "unsup_challenge2017":
+                        if feats_format == "unsup_challenge2017":
                             input_signal = training_data[myfile]
                             hop_size = int(float(FLAGS.window_length) / 2.5)
                             print('Generate features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size)
@@ -560,7 +560,7 @@ def gen_feat(filelist, feats_outputfile, feats_format):
                             print('Writing to ', out_filename)
                             utils.writeZeroSpeechFeatFile(feat, out_filename, window_length_seconds, hop_size_seconds )
 
-                        if feats_type == "kaldi_text":
+                        if feats_format == "kaldi_text":
                             input_signal = training_data[myfile]
                             hop_size = FLAGS.kaldi_hopsize
                             print('Generate KALDI text features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size)
@@ -568,14 +568,14 @@ def gen_feat(filelist, feats_outputfile, feats_format):
                             utils.writeArkTextFeatFile(feat,  myfile.replace('.wav', '') , FLAGS.output_kaldi_ark, not first_file)
                             first_file = False
                             
-                        if feats_type == "kaldi_bin":           
+                        if feats_format == "kaldi_bin":           
                             input_signal = training_data[myfile]
                             hop_size = FLAGS.kaldi_hopsize
                             print('Generate KALDI bin features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size)
                             feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size))
                             print('Done, writing to ' + outputfile)
-                            pointers = writeArk(outputfile + '.ark', [feat], [file2id[myfile]], append = not first_file)
-                            writeScp(outputfile + '.scp', [file2id[myfile]], pointers, append=not first_file)
+                            pointers = kaldi_io.writeArk(outputfile + '.ark', [feat], [file2id[myfile]], append = not first_file)
+                            kaldi_io.writeScp(outputfile + '.scp', [file2id[myfile]], pointers, append=not first_file)
                             first_file = False
 
                 else:
@@ -679,6 +679,7 @@ if __name__ == "__main__":
     print("\nParameters:")
     print(get_FLAGS_params_as_str())
     utt_ids, filelist = utils.loadIdFile(FLAGS.filelist, 3000000)
+    print(utt_ids, filelist)
     print(zip(utt_ids, filelist))
 
     print('continuing training in 5 seconds...')
@@ -686,6 +687,8 @@ if __name__ == "__main__":
 
     if FLAGS.debug:
         filelist = filelist[:10]
+
+    file2id = {}
 
     for utt_id, myfile in zip(utt_ids,filelist):
 #    for myfile in [filelist[-1]]:   
@@ -697,6 +700,7 @@ if __name__ == "__main__":
         signal = np.fmin(1.0,signal)
         
         training_data[myfile] = signal
+        
         file2id[myfile] = utt_id
         
     if FLAGS.gen_feats:
