@@ -27,7 +27,7 @@ tf.flags.DEFINE_string("filelist", "filelist.english.train", "Filelist, one wav 
 tf.flags.DEFINE_boolean("end_to_end", True, "Use end-to-end learning (Input is 1D). Otherwise input is 2D like FBANK or MFCC features.")
 tf.flags.DEFINE_boolean("debug", False, "Limits the filelist size and is more debug.")
 
-tf.flags.DEFINE_boolean("gen_feats", False, "Limits the filelist size and is more debug.")
+tf.flags.DEFINE_boolean("gen_feats", False, "Load a model from train_dir")
 
 tf.flags.DEFINE_boolean("generate_kaldi_output_feats", False, "Whether to write out a feature file for Kaldi (containing all utterances), requires a trained model")
 tf.flags.DEFINE_string("output_kaldi_ark", "output_kaldi.ark" , "Output file for Kaldi ark file")
@@ -544,6 +544,8 @@ def gen_feat(filelist, feats_outputfile, feats_format):
                                     ('dot_combine' if FLAGS.dot_combine else '')
                     
                     outputfile = feats_outputfile.replace('%model_params', model_params)
+                    
+                    utils.ensure_dir(outputfile)
                     
                     # model is now loaded with the trained parameters
                     for myfile in filelist:
