@@ -710,6 +710,6 @@ if __name__ == "__main__":
         file2id[myfile] = utt_id
         
     if FLAGS.gen_feats:
-        gen_feat(filelist, feats_outputfile=FLAGS.feats_outputfile, feats_format=FLAGS.feats_format)
+        gen_feat(filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format)
     #todo add eval and writing out features
     train(filelist)
