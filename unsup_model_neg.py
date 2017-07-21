@@ -85,6 +85,7 @@ tf.flags.DEFINE_boolean("log_tensorboard", True, "Log training process if this i
 tf.flags.DEFINE_string("train_dir", "/srv/data/milde/unspeech_models/neg/", "Training dir to resume training from. If empty, a new one will be created.")
 tf.flags.DEFINE_string("output_feat_file", "/srv/data/milde/unspeech_models/feats/", "Necessary suffixes will get appended (depending on output format).")
 tf.flags.DEFINE_string("output_feat_format", "kaldi_bin", "Feat format")
+tf.flags.DEFINE_string("genfeat_hopsize", 160)
 
 FLAGS = tf.flags.FLAGS
 
@@ -521,7 +522,7 @@ def gen_feat_batch(self, sess, windows):
      feats = sess.run(self.outs[0], feed_dict=feed_dict)
      return feats
     
-def gen_feat(filelist, feats_outputfile, feats_format):
+def gen_feat(filelist, feats_outputfile, feats_format, hop_size):
     filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
     with tf.device('/gpu:1'):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
@@ -570,7 +571,7 @@ def gen_feat(filelist, feats_outputfile, feats_format):
                             
                         if feats_format == "kaldi_bin":           
                             input_signal = training_data[myfile]
-                            hop_size = FLAGS.kaldi_hopsize
+                            
                             print('Generate KALDI bin features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size)
                             feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size))
                             print('Done, writing to ' + outputfile)
@@ -710,6 +711,6 @@ if __name__ == "__main__":
         file2id[myfile] = utt_id
         
     if FLAGS.gen_feats:
-        gen_feat(filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format)
+        gen_feat(filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize)
     #todo add eval and writing out features
     train(filelist)
