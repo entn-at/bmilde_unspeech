@@ -680,7 +680,7 @@ if __name__ == "__main__":
     print(get_FLAGS_params_as_str())
     utt_ids, filelist = utils.loadIdFile(FLAGS.filelist, 3000000)
     print(utt_ids, filelist)
-    print(zip(utt_ids, filelist))
+    print(list(zip(utt_ids, filelist)))
 
     print('continuing training in 5 seconds...')
     time.sleep(5)
