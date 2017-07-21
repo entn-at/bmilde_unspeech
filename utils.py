@@ -71,7 +71,8 @@ def loadIdFile(idfile,use_no_files=-1):
     
     ids = [myid for myid in ids if myid != '']
     
-    if len(ids[0].split() > 1):
+    split = ids[0].split()
+    if len(split) > 1:
         utt_ids = split[0]
         wav_files = split[1]
     else:
@@ -103,11 +104,6 @@ def writeArkTextFeatFile(feat, feat_name, out_filename, append = False):
         for feat_vec in feat:
             feat_vec_str = ' '.join([str(elem) for elem in feat_vec])
             out_file.write(feat_vec_str)
-    
-def ensure_dir(file_path):
-    directory = os.path.dirname(file_path)
-    if not os.path.exists(directory):
-        os.makedirs(directory)
 
 def writeZeroSpeechFeatFile(feat, out_filename, window_length, hop_size):
     ensure_dir(out_filename)
