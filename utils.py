@@ -7,6 +7,7 @@ import tensorflow as tf
 import os.path
 import gzip
 import bz2
+import wavefile
 
 def smart_open(filename, mode = 'rb', *args, **kwargs):
     '''
@@ -96,7 +97,7 @@ def getSignalOld(utterance):
 # This is needed since the old loader had problems with NIST headers from TIMIT. 
 # See also https://stackoverflow.com/questions/10187043/read-nist-wav-file-in-timit-database-into-python-numpy-array
 def getSignal(utterance):
-    samplerate, signal = scipy.io.wavfile.read(utterance)
+    samplerate, signal = wavefile.load(utterance)
     print(utterance, 'dtype:', signal.dtype, 'min:', min(signal), 'max:', max(signal), 'samplerate:', samplerate)
     return signal, samplerate
 
