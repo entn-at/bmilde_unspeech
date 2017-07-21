@@ -541,7 +541,7 @@ def gen_feat(filelist, feats_outputfile, feats_format):
                     model_params = ('e2e' if FLAGS.end_to_end else '') + '_trans' + FLAGS.embedding_transformation + '_win' + str(FLAGS.window_length) + '_lcontexts' + str(FLAGS.left_contexts) + '_rcontexts' + str(FLAGS.right_contexts) + \
                                     '_flts' + str(FLAGS.num_filters) + '_embsize' + str(FLAGS.embedding_size) + ('dnn' + str(FLAGS.num_dnn_layers) if FLAGS.embedding_transformation=='BaselineDnn' else '') + \
                                     ('highwaydnn' + str(FLAGS.num_highway_layers) if FLAGS.embedding_transformation=='HighwayDnn' else '') + \
-                                    ('dot_combine' if FLAGS.dot_combine else '')
+                                    ('dot_combine' if FLAGS.use_dot_combine else '')
                     
                     outputfile = feats_outputfile.replace('%model_params', model_params)
                     
