@@ -693,7 +693,11 @@ if __name__ == "__main__":
     for utt_id, myfile in zip(utt_ids,filelist):
 #    for myfile in [filelist[-1]]:   
         print('Loading:',myfile)
-        signal = np.float32(utils.getSignal(myfile)[0])
+        signal, framerate = utils.getSignal(myfile)
+        if framerate != 16000:
+            print('Warning framerate != 16000:', framerate)
+       
+        if signal.dtype != 'float32':
         #convert and clip to -1.0 - 1.0 range
         signal /= 32768.0
         signal = np.fmax(-1.0,signal)
