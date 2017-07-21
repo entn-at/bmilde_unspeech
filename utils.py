@@ -98,6 +98,8 @@ def getSignalOld(utterance):
 # See also https://stackoverflow.com/questions/10187043/read-nist-wav-file-in-timit-database-into-python-numpy-array
 def getSignal(utterance):
     samplerate, signal = wavefile.load(utterance)
+    print(signal)
+    signal = signal[0]
     print(utterance, 'dtype:', signal.dtype, 'min:', min(signal), 'max:', max(signal), 'samplerate:', samplerate)
     return signal, samplerate
 
