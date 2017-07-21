@@ -8,7 +8,7 @@ Created on Wed Jul 19 14:47:15 2017
 
 import numpy
 import struct
-from fileutils import smart_open
+from utils import smart_open
 
 def readString(f):
     s = ""
