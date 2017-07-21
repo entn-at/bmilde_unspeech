@@ -710,6 +710,6 @@ if __name__ == "__main__":
         file2id[myfile] = utt_id
         
     if FLAGS.gen_feats:
-        gen_feat(filelist, generate_challenge_output_feats=FLAGS.generate_challenge_output_feats, generate_kaldi_output_feats=FLAGS.generate_kaldi_output_feats)
+        gen_feat(filelist, feats_outputfile=FLAGS.feats_outputfile, feats_format=FLAGS.feats_format)
     #todo add eval and writing out features
     train(filelist)
