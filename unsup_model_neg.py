@@ -85,7 +85,7 @@ tf.flags.DEFINE_boolean("log_tensorboard", True, "Log training process if this i
 tf.flags.DEFINE_string("train_dir", "/srv/data/milde/unspeech_models/neg/", "Training dir to resume training from. If empty, a new one will be created.")
 tf.flags.DEFINE_string("output_feat_file", "/srv/data/milde/unspeech_models/feats/", "Necessary suffixes will get appended (depending on output format).")
 tf.flags.DEFINE_string("output_feat_format", "kaldi_bin", "Feat format")
-tf.flags.DEFINE_string("genfeat_hopsize", 160)
+tf.flags.DEFINE_string("genfeat_hopsize", 160, "Hop size (in samples if end-to-end) for the feature generation.")
 
 FLAGS = tf.flags.FLAGS
 
