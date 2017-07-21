@@ -4,6 +4,26 @@ import scipy
 import os
 import scipy.io.wavfile
 import tensorflow as tf
+import os.path
+import gzip
+import bz2
+
+def smart_open(filename, mode = 'rb', *args, **kwargs):
+    '''
+    Opens a file "smartly":
+      * If the filename has a ".gz" or ".bz2" extension, compression is handled
+        automatically;
+      * If the file is to be read and does not exist, corresponding files with
+        a ".gz" or ".bz2" extension will be attempted.
+    '''
+    readers = {'.gz': gzip.GzipFile, '.bz2': bz2.BZ2File}
+    if 'r' in mode and not os.path.exists(filename):
+        for ext in readers:
+            if os.path.exists(filename + ext):
+                filename += ext
+                break
+    extension = os.path.splitext(filename)[1]
+    return readers.get(extension, open)(filename, mode, *args, **kwargs)
 
 #compresses the dynamic range, see https://en.wikipedia.org/wiki/%CE%9C-law_algorithm
 def encode_mulaw(signal,mu=255):
@@ -48,9 +68,18 @@ def loadIdFile(idfile,use_no_files=-1):
     ids = []
     with open(idfile) as f:
         ids = f.read().split('\n')[:use_no_files]
+    
+    ids = [myid for myid in ids if myid != '']
+    
+    if len(ids[0].split() > 1):
+        utt_ids = split[0]
+        wav_files = split[1]
+    else:
+        utt_ids = None
+        wav_files = ids
     #check if ids exist
     #ids = [myid for myid in ids if os.path.ispath(myid)]
-    return [myid for myid in ids if myid != '']
+    return utt_ids, wav_files
 
 def getSignal(utterance):
     spf = wave.open(utterance, 'r')
