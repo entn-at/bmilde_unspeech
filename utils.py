@@ -71,10 +71,15 @@ def loadIdFile(idfile,use_no_files=-1):
     
     ids = [myid for myid in ids if myid != '']
     
-    split = ids[0].split()
-    if len(split) > 1:
-        utt_ids = split[0]
-        wav_files = split[1]
+    if len(ids[0].split()) > 1:
+        utt_ids = []
+        wav_files = []
+        
+        for myid in ids:
+            print(myid)
+            split = myid.split()
+            utt_ids.append(split[0])
+            wav_files.append(split[1])
     else:
         utt_ids = None
         wav_files = ids
