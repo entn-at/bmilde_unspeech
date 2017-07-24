@@ -108,7 +108,7 @@ def writeArk(filename, features, uttids, append=False):
     pointers = []
     with smart_open(filename, "ab" if append else "wb") as f:
         for feature, uttid in zip(features, uttids):
-            writeString(f, uttid)
+            writeString(f, uttid.encode('utf-8'))
             pointers.append("%s:%d" % (filename, f.tell()))
             writeMatrix(f, feature)
     return pointers
