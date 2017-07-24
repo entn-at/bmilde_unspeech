@@ -712,5 +712,5 @@ if __name__ == "__main__":
         
     if FLAGS.gen_feats:
         gen_feat(filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize)
-    #todo add eval and writing out features
-    train(filelist)
+    else:
+        train(filelist)
