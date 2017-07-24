@@ -517,10 +517,10 @@ class UnsupSeech(object):
         _, output, loss = sess.run([self.train_op, self.out, self.cost], feed_dict=feed_dict)
         return  output, loss
 
-def gen_feat_batch(self, sess, windows):
-     feed_dict = {self.input_x: windows}
-     feats = sess.run(self.outs[0], feed_dict=feed_dict)
-     return feats
+    def gen_feat_batch(self, sess, windows):
+        feed_dict = {self.input_x: windows}
+        feats = sess.run(self.outs[0], feed_dict=feed_dict)
+        return feats
     
 def gen_feat(filelist, feats_outputfile, feats_format, hop_size):
     filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
