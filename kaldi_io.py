@@ -120,4 +120,4 @@ def writeScp(filename, uttids, pointers, append=False):
     """
     with smart_open(filename, "a" if append else "w") as f:
         for uttid, pointer in zip(uttids, pointers):
-            f.write(("%s %s\n" % (uttid, pointer)).encode('utf-8'))
+            f.write("%s %s\n" % (uttid, pointer))
