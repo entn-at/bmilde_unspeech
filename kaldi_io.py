@@ -24,15 +24,15 @@ def readInteger(f):
 
 def readMatrix(f):
     header = f.read(2)
-    if header != "\0B":
+    if header != b"\0B":
         raise ValueError("Binary mode header ('\0B') not found when attempting to read a matrix.")
     format = readString(f)
     nRows = readInteger(f)
     nCols = readInteger(f)
-    if format == "DM":
+    if format == b"DM":
         data = struct.unpack("<%dd" % (nRows * nCols), f.read(nRows * nCols * 8))
         data = numpy.array(data, dtype = "float64")
-    elif format == "FM":
+    elif format == b"FM":
         data = struct.unpack("<%df" % (nRows * nCols), f.read(nRows * nCols * 4))
         data = numpy.array(data, dtype = "float32")
     else:
@@ -40,24 +40,24 @@ def readMatrix(f):
     return data.reshape(nRows, nCols)
 
 def writeString(f, s):
-    f.write(s + " ")
+    f.write(s + b" ")
 
 def writeInteger(f, a):
-    s = struct.pack("<i", a)
-    f.write(chr(len(s)) + s)
+    s = struct.pack(b"<i", a)
+    f.write(chr(len(s)).encode('latin-1') + s)
 
 def writeMatrix(f, data):
-    f.write("\0B")      # Binary data header
+    f.write(b"\0B")      # Binary data header
     if str(data.dtype) == "float64":
-        writeString(f, "DM")
+        writeString(f, b"DM")
         writeInteger(f, data.shape[0])
         writeInteger(f, data.shape[1])
-        f.write(struct.pack("<%dd" % data.size, *data.ravel()))
+        f.write(struct.pack(b"<%dd" % data.size, *data.ravel()))
     elif str(data.dtype) == "float32":
-        writeString(f, "FM")
+        writeString(f, b"FM")
         writeInteger(f, data.shape[0])
         writeInteger(f, data.shape[1])
-        f.write(struct.pack("<%df" % data.size, *data.ravel()))
+        f.write(struct.pack(b"<%df" % data.size, *data.ravel()))
     else:
         raise ValueError("Unsupported matrix format '%s' for writing; currently supported formats are float64 and float32." % str(data.dtype))
 
@@ -120,4 +120,4 @@ def writeScp(filename, uttids, pointers, append=False):
     """
     with smart_open(filename, "a" if append else "w") as f:
         for uttid, pointer in zip(uttids, pointers):
-            f.write("%s %s\n" % (uttid, pointer))
+            f.write(("%s %s\n" % (uttid, pointer)).encode('utf-8'))
