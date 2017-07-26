@@ -524,6 +524,13 @@ class UnsupSeech(object):
         feed_dict = {self.input_window_1: input_windows}
         feats = sess.run(self.outs[0], feed_dict=feed_dict)
         return feats
+
+def get_model_flags_param_short():
+    ''' get model params as string, e.g. to use it in an output filepath '''
+    return ('e2e' if FLAGS.end_to_end else '') + '_trans' + FLAGS.embedding_transformation + '_win' + str(FLAGS.window_length) + '_lcontexts' + str(FLAGS.left_contexts) + '_rcontexts' + str(FLAGS.right_contexts) + \
+                                    '_flts' + str(FLAGS.num_filters) + '_embsize' + str(FLAGS.embedding_size) + ('_dnn' + str(FLAGS.num_dnn_layers) if FLAGS.embedding_transformation=='BaselineDnn' else '') + \
+                                    ('_highwaydnn' + str(FLAGS.num_highway_layers) if FLAGS.embedding_transformation=='HighwayDnn' else '') + \
+                                    ('_dot_combine' if FLAGS.use_dot_combine else '')
     
 def gen_feat(filelist, feats_outputfile, feats_format, hop_size):
     filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
@@ -542,10 +549,7 @@ def gen_feat(filelist, feats_outputfile, feats_format, hop_size):
                     first_file = True
                     
                     window_length_seconds = float(FLAGS.window_length)/float(FLAGS.sample_rate)
-                    model_params = ('e2e' if FLAGS.end_to_end else '') + '_trans' + FLAGS.embedding_transformation + '_win' + str(FLAGS.window_length) + '_lcontexts' + str(FLAGS.left_contexts) + '_rcontexts' + str(FLAGS.right_contexts) + \
-                                    '_flts' + str(FLAGS.num_filters) + '_embsize' + str(FLAGS.embedding_size) + ('_dnn' + str(FLAGS.num_dnn_layers) if FLAGS.embedding_transformation=='BaselineDnn' else '') + \
-                                    ('_highwaydnn' + str(FLAGS.num_highway_layers) if FLAGS.embedding_transformation=='HighwayDnn' else '') + \
-                                    ('_dot_combine' if FLAGS.use_dot_combine else '')
+                    model_params = get_model_flags_param_short()
                     
                     outputfile = feats_outputfile.replace('%model_params', model_params)
                     
@@ -667,6 +671,7 @@ def train(filelist):
                     print('At step %i step-time %.4f loss %.4f' % (current_step, step_time, mean_train_loss))
                     print('Model saving path is:', model.out_dir)
                     print('Training started', (time.time() - training_start_time) / 3600.0,'hours ago.')
+                    print('FLAGS params in short:',get_model_flags_param_short())
 
                     train_losses = []
                     step_time = 0
