@@ -82,7 +82,7 @@ def loadIdFile(idfile,use_no_files=-1):
             utt_ids.append(split[0])
             wav_files.append(split[1])
     else:
-        utt_ids = None
+        utt_ids = []
         wav_files = ids
     #check if ids exist
     #ids = [myid for myid in ids if os.path.ispath(myid)]
@@ -100,7 +100,7 @@ def getSignal(utterance):
     samplerate, signal = wavefile.load(utterance)
     print(signal)
     signal = signal[0]
-    print(utterance, 'dtype:', signal.dtype, 'min:', min(signal), 'max:', max(signal), 'samplerate:', samplerate)
+    #print(utterance, 'dtype:', signal.dtype, 'min:', min(signal), 'max:', max(signal), 'samplerate:', samplerate)
     return signal, samplerate
 
 def writeSignal(signal, myfile, rate=16000, do_decode_mulaw=False):
