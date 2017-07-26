@@ -15,6 +15,8 @@ import time
 import utils
 import math
 import kaldi_io
+import itertools
+
 
 from sklearn.metrics import accuracy_score
 
@@ -350,11 +352,11 @@ class UnsupSeech(object):
         
         with slim.arg_scope([slim.conv2d, slim.fully_connected],  weights_initializer=tf.truncated_normal_initializer(stddev=0.01),
                                             #weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
-                                            #weights_regularizer=slim.l2_regularizer(0.0005),
+                                            weights_regularizer=slim.l2_regularizer(0.0005),
                                             activation_fn=lrelu,
-                                            biases_initializer = tf.constant_initializer(0.01)):
-                                            #normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
-                                            #normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
+                                            biases_initializer = tf.constant_initializer(0.01),
+                                            normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
+                                            normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
             with tf.variable_scope("unsupmodel"):
                 # a list of embeddings to use for the binary classifier (the embeddings are combined)
                 self.outs = []
@@ -509,7 +511,8 @@ class UnsupSeech(object):
         
                 if is_training:
                     self.create_training_graphs(create_new_train_dir)
-                    self.saver = tf.train.Saver(tf.global_variables())
+                
+                self.saver = tf.train.Saver(tf.global_variables())
 
     # do a training step with the supplied input data
     def step(self, sess, input_window_1, input_window_2, labels):
@@ -527,7 +530,7 @@ def gen_feat(filelist, feats_outputfile, feats_format, hop_size):
     with tf.device('/gpu:1'):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
             model = UnsupSeech(window_length=FLAGS.window_length, window_neg_length=FLAGS.window_neg_length, filter_sizes=filter_sizes, 
-                    num_filters=FLAGS.num_filters, fc_size=FLAGS.embedding_size, dropout_keep_prob=FLAGS.dropout_keep_prob, k = FLAGS.negative_samples, train_files = filelist,  batch_size=FLAGS.batch_size)
+                    num_filters=FLAGS.num_filters, fc_size=FLAGS.embedding_size, dropout_keep_prob=FLAGS.dropout_keep_prob, k = FLAGS.negative_samples, train_files = filelist,  batch_size=FLAGS.batch_size, is_training=False, create_new_train_dir=False)
             
             if FLAGS.train_dir != "":
                 print('FLAGS.train_dir',FLAGS.train_dir)
@@ -591,6 +594,7 @@ def train(filelist):
             model = UnsupSeech(window_length=FLAGS.window_length, window_neg_length=FLAGS.window_neg_length, filter_sizes=filter_sizes, 
                                 num_filters=FLAGS.num_filters, fc_size=FLAGS.embedding_size, dropout_keep_prob=FLAGS.dropout_keep_prob, k = FLAGS.negative_samples ,train_files = filelist,  batch_size=FLAGS.batch_size)
             
+            training_start_time = time.time()
             restored = False
             if FLAGS.train_dir != "":
                 ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
@@ -661,7 +665,9 @@ def train(filelist):
                     print('majority class accuracy:', accuracy_score(labels, out_flat_zero))
                     
                     print('At step %i step-time %.4f loss %.4f' % (current_step, step_time, mean_train_loss))
-                    
+                    print('Model saving path is:', model.out_dir)
+                    print('Training started', (time.time() - training_start_time) / 3600.0,'hours ago.')
+
                     train_losses = []
                     step_time = 0
                     if checkpoint_step % FLAGS.checkpoints_per_save == 0:
@@ -681,7 +687,7 @@ if __name__ == "__main__":
     print(get_FLAGS_params_as_str())
     utt_ids, filelist = utils.loadIdFile(FLAGS.filelist, 3000000)
     print(utt_ids, filelist)
-    print(list(zip(utt_ids, filelist)))
+    #print(list(zip(utt_ids, filelist)))
 
     print('continuing training in 5 seconds...')
     time.sleep(5)
@@ -691,7 +697,7 @@ if __name__ == "__main__":
 
     file2id = {}
 
-    for utt_id, myfile in zip(utt_ids,filelist):
+    for utt_id, myfile in itertools.zip_longest(utt_ids,filelist):
 #    for myfile in [filelist[-1]]:   
         print('Loading:',myfile)
         signal, framerate = utils.getSignal(myfile)
