@@ -14,6 +14,9 @@ import sys
 import time
 import utils
 import math
+import kaldi_io
+import itertools
+
 
 from sklearn.metrics import accuracy_score
 
@@ -26,35 +29,47 @@ tf.flags.DEFINE_string("filelist", "filelist.english.train", "Filelist, one wav 
 tf.flags.DEFINE_boolean("end_to_end", True, "Use end-to-end learning (Input is 1D). Otherwise input is 2D like FBANK or MFCC features.")
 tf.flags.DEFINE_boolean("debug", False, "Limits the filelist size and is more debug.")
 
+tf.flags.DEFINE_boolean("gen_feats", False, "Load a model from train_dir")
+
+tf.flags.DEFINE_boolean("generate_kaldi_output_feats", False, "Whether to write out a feature file for Kaldi (containing all utterances), requires a trained model")
+tf.flags.DEFINE_string("output_kaldi_ark", "output_kaldi.ark" , "Output file for Kaldi ark file")
+tf.flags.DEFINE_boolean("generate_challenge_output_feats", False, "Whether to write out a feature file in the unsupervise vhallenge format (containing all utterances), requires a trained model")
+tf.flags.DEFINE_integer("hop_size", 200,"How many training steps to do per checkpoint.")
+tf.flags.DEFINE_string("model_name", "feat1", "Model output name, currently only used for generate_challenge_output_feats")
+
 tf.flags.DEFINE_integer("sample_rate", 16000, "Sample rate of the audio files. Must have the same samplerate for all audio files.") # 100+ ms @ 16kHz
 tf.flags.DEFINE_string("filter_sizes", "512", "Comma-separated filter sizes (default: '200')") # 25ms @ 16kHz
 tf.flags.DEFINE_integer("num_filters", 40, "Number of filters per filter size (default: 40)")
-tf.flags.DEFINE_integer("window1_length", 1024, "First window length, samples or frames") # 100+ ms @ 16kHz
-tf.flags.DEFINE_integer("window2_length", 1024, "Second window length, samples or frames") # 100+ ms @ 16kHz
-tf.flags.DEFINE_integer("embeddings_size", 256 , "Size of the generated embeddings.")
+
+tf.flags.DEFINE_integer("window_length", 1024, "Main window length, samples (end-to-end) or frames (FBANK)") # 100+ ms @ 16kHz
+tf.flags.DEFINE_integer("window_neg_length", 1024, "Context window length, samples (end-to-end) or frames (FBANK)") # 100+ ms @ 16kHz
+
+tf.flags.DEFINE_integer("left_contexts", 2, "How many left context windows")
+tf.flags.DEFINE_integer("right_contexts", 2, "How many right context windows")
+
+tf.flags.DEFINE_integer("embedding_size", 256 , "Fully connected size at the end of the network.")
+
 tf.flags.DEFINE_integer("fc_size", 1024 , "Fully connected size at the end of the network.")
 
 tf.flags.DEFINE_boolean("first_layer_tanh", True, "Whether tanh should be used for the output conv1d filters in end-to-end networks.")
 tf.flags.DEFINE_boolean("first_layer_log1p", True, "Whether log1p should be applied to the output of the conv1d filters.")
 
-tf.flags.DEFINE_boolean("with_vgg16", False, "Whether to use a vgg16 network for the embeddings computation.")
-tf.flags.DEFINE_boolean("with_dense_network", False,  "Whether to use a dense conv network for the embeddings computation.")
-tf.flags.DEFINE_boolean("with_baseline_dnn", True,  "Whether to use a baseline dnn network for the embeddings computation.")
+tf.flags.DEFINE_string("embedding_transformation", "BaselineDnn", "What network to use for the embeddings computation. Vgg16, DenseNet, BaselineDnn, HighwayDnn.")
 
 tf.flags.DEFINE_integer("dense_block_filters", 5,  "Number of filters inside a conv2d in a dense block.")
 tf.flags.DEFINE_integer("dense_block_layers_connected", 3,  "Number of layers inside dense block.")
 tf.flags.DEFINE_integer("dense_block_filters_transition", 4, "Number of filters inside a conv2d in a dense block transition.")
 
-tf.flags.DEFINE_integer("num_dnn_layers", 2, "How many layers for the baseline dnn.")
+tf.flags.DEFINE_integer("num_highway_layers", 6, "How many layers for the highway dnn.")
+tf.flags.DEFINE_integer("num_dnn_layers", 3, "How many layers for the baseline dnn.")
 
-tf.flags.DEFINE_boolean("tied_embeddings_transforms", True, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
-
+tf.flags.DEFINE_boolean("tied_embeddings_transforms", False, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
 tf.flags.DEFINE_boolean("use_wighted_loss_func", False, "Whether the class imbalance of having k negative samples should be countered by weighting the positive examples k-times more.")
+tf.flags.DEFINE_boolean("use_dot_combine", True, "Define the loss function over the logits of the dot product of window and context window.")
 
+tf.flags.DEFINE_integer("negative_samples", 4, "How many negative samples to generate.")
 
-tf.flags.DEFINE_integer("negative_samples", 2, "How many negative samples to generate.")
-
-tf.flags.DEFINE_integer("batch_size", 64, "Batch Size (default: 64)")
+tf.flags.DEFINE_integer("batch_size", 32, "Batch Size (default: 64)")
 tf.flags.DEFINE_boolean("batch_normalization", False, "Whether to use batch normalization.")
 
 tf.flags.DEFINE_float("dropout_keep_prob", 1.0 , "Dropout keep probability")
@@ -70,12 +85,15 @@ tf.flags.DEFINE_integer("checkpoints_per_save", 1,
 tf.flags.DEFINE_boolean("allow_soft_placement", True, "Allow device soft device placement")
 tf.flags.DEFINE_boolean("log_device_placement", False, "Log placement of ops on devices")
 
-tf.flags.DEFINE_float("learn_rate", 5e-4, "Learn rate for the optimizer")
+tf.flags.DEFINE_float("learn_rate", 1e-4, "Learn rate for the optimizer")
 tf.flags.DEFINE_float("gradient_clipping", 5.0, "Clip the gradient at larger +/- this value.")
 
 tf.flags.DEFINE_boolean("log_tensorboard", True, "Log training process if this is set to True.")
 
 tf.flags.DEFINE_string("train_dir", "/srv/data/milde/unspeech_models/neg/", "Training dir to resume training from. If empty, a new one will be created.")
+tf.flags.DEFINE_string("output_feat_file", "/srv/data/milde/unspeech_models/feats/", "Necessary suffixes will get appended (depending on output format).")
+tf.flags.DEFINE_string("output_feat_format", "kaldi_bin", "Feat format")
+tf.flags.DEFINE_string("genfeat_hopsize", 160, "Hop size (in samples if end-to-end) for the feature generation.")
 
 FLAGS = tf.flags.FLAGS
 
@@ -177,6 +195,26 @@ def vgg16(inputs):
     #net = slim.fully_connected(net, 1000, activation_fn=None, scope='fc8')
   return net
 
+# highway impl from https://github.com/fomorians/highway-fcn/blob/master/main.py
+
+def weight_bias(W_shape, b_shape, bias_init=0.1, stddev=0.1):
+    W = tf.Variable(tf.truncated_normal(W_shape, stddev=0.1), name='weight')
+    b = tf.Variable(tf.constant(bias_init, shape=b_shape), name='bias')
+    return W, b
+
+def highway_layer(x, size, activation, carry_bias=-1.0):
+    W, b = weight_bias([size, size], [size])
+
+    with tf.name_scope('transform_gate'):
+        W_T, b_T = weight_bias([size, size],[size], bias_init=carry_bias)
+
+    H = activation(tf.matmul(x, W) + b, name='activation')
+    T = tf.sigmoid(tf.matmul(x, W_T) + b_T, name='transform_gate')
+    C = tf.subtract(1.0, T, name="carry_gate")
+
+    y = tf.add(tf.multiply(H, T), tf.multiply(x, C), name='y') # y = (H * T) + (x * C)
+    return y
+
 class UnsupSeech(object):
     """
     Unsupervised learning with RAW speech signals. This model learns a speech representation by u
@@ -218,10 +256,11 @@ class UnsupSeech(object):
             self.train_summary_op = tf.summary.merge_all()
             train_summary_dir = os.path.join(self.out_dir, "summaries", "train")
     
-    def get_random_audiosample(self, window_size):
+    def get_random_audiosample(self, window_size, random_file_num=None):
         filelist_size = len(filelist)
         
-        random_file_num = int(math.floor(np.random.random_sample() * filelist_size))
+        if random_file_num is None:
+            random_file_num = int(math.floor(np.random.random_sample() * filelist_size))
         random_file = filelist[random_file_num]
         audio_data = training_data[random_file]
         audio_len = audio_data.shape[0] - window_size
@@ -232,76 +271,87 @@ class UnsupSeech(object):
 
     # does a batch where one of the examples are two windows with consecutive signals and k randomly selected window_2s
     #, with a fixed window1
-    def get_batch_k_samples(self, filelist, window_size_1, window_size_2, k=4):            
-        window1_batch = []
-        window2_batch = []
+    def get_batch_k_samples(self, filelist, window_length, window_neg_length, left_contexts=0, right_contexts=1 , k=4):            
+        window_batch = []
+        window_neg_batch = []
         labels = []
         
         for i in xrange(FLAGS.batch_size*(k+1)):
-            if i%(k+1)==0: 
-                combined_sample = self.get_random_audiosample(window_size_1+window_size_2)
-                window1 = combined_sample[:window_size_1]
-                window2 = combined_sample[window_size_1:]
-                #assign label 1, if both windows are consecutive
-                labels.append(1.0)
-                
+            if i%(k+1)==0:
+                combined_sample = self.get_random_audiosample(window_length+window_neg_length*(left_contexts+right_contexts))
+                # getting all the context pairs, e.g. context_num goes from -2 to 2 for left_contexts=2 and right_contexts=2
+                center_window_pos = window_neg_length*left_contexts
+                for context_num in xrange(-1*left_contexts, right_contexts+1):
+                    if context_num < 0:
+                        neg_pos = (left_contexts+context_num)*window_neg_length
+                    elif context_num > 0:
+                        neg_pos = center_window_pos+window_length+(context_num-1)*window_neg_length
+                    if context_num !=0:
+                        window = combined_sample[center_window_pos:center_window_pos+window_length]
+                        window_neg = combined_sample[neg_pos:neg_pos+window_neg_length] 
+                        #assign label 1, if both windows are consecutive    
+                        labels.append(1.0)
+                        window_batch.append(window)
+                        window_neg_batch.append(window_neg)
             else:
-                window1 = self.get_random_audiosample(window_size_1)
-                window2 = self.get_random_audiosample(window_size_2)
+                random_file_num = int(math.floor(np.random.random_sample() * len(filelist)))
+                # just select two random samples. Todo, other sampling strategies?
+                window = self.get_random_audiosample(window_length, random_file_num=random_file_num)
+                window_neg = self.get_random_audiosample(window_neg_length, random_file_num=random_file_num)
                 #assign label 0, if both windows are randomly selected
                 labels.append(0.0)
                 
-            window1_batch.append(window1)
-            window2_batch.append(window2)
+                window_batch.append(window)
+                window_neg_batch.append(window_neg)
 
         labels = np.asarray(labels).reshape(-1,1)
 
         #if self.first_call_to_get_batch:
-        #    print("window1_batch,",[elem[:5] for elem in window1_batch],"window2_batch,",[elem[:5] for elem in window2_batch],"labels",labels) 
+        #    print("window_batch,",[elem[:5] for elem in window_batch],"window_neg_batch,",[elem[:5] for elem in window_neg_batch],"labels",labels) 
         #    self.first_call_to_get_batch = False
 
-        return window1_batch,window2_batch,labels
+        return window_batch,window_neg_batch,labels
      
     # similar to get_batch_k_samples, but with true_context_window2_probability we select either two neighbooring pairs or two random audio snippets
-    def get_batch_randomized(self, filelist, window_size_1, window_size_2, true_context_window2_probability=0.5):            
-        window1_batch = []
-        window2_batch = []
+    def get_batch_randomized(self, filelist, window_length, window_neg_length, true_context_window2_probability=0.5):            
+        window_batch = []
+        window_neg_batch = []
         labels = []
         
         for i in xrange(FLAGS.batch_size):
             if np.random.random_sample() <= true_context_window2_probability: 
-                combined_sample = self.get_random_audiosample(window_size_1+window_size_2)
-                window1 = combined_sample[:window_size_1]
-                window2 = combined_sample[window_size_1:]
+                combined_sample = self.get_random_audiosample(window_length+window_neg_length)
+                window1 = combined_sample[:window_length]
+                window2 = combined_sample[window_length:]
                 #assign label 1, if both windows are consecutive
                 labels.append(1.0)
                 
             else:
-                window1 = self.get_random_audiosample(window_size_1)
-                window2 = self.get_random_audiosample(window_size_2)
+                window1 = self.get_random_audiosample(window_length)
+                window2 = self.get_random_audiosample(window_neg_length)
                 #assign label 0, if both windows are randomly selected 
                 labels.append(0.0)
                 
-            window1_batch.append(window1)
-            window2_batch.append(window2)
+            window_batch.append(window1)
+            window_neg_batch.append(window2)
 
-        return window1_batch,window2_batch,labels
+        return window_batch,window_neg_batch,labels
     
     
-    def __init__(self, window_size_1, window_size_2, filter_sizes, num_filters, fc_size, embeddings_size, dropout_keep_prob, train_files, k, is_training=True, create_new_train_dir=True, batch_size=128):
+    def __init__(self, window_length, window_neg_length, filter_sizes, num_filters, fc_size, embeddings_size, dropout_keep_prob, train_files, k, is_training=True, create_new_train_dir=True, batch_size=128):
 
         self.train_files = train_files
 
-        self.window_size_1 = window_size_1
-        self.window_size_2 = window_size_2
+        self.window_length = window_length
+        self.window_neg_length = window_neg_length
         self.fc_size = fc_size
         self.embeddings_size = embeddings_size
 
         # None -> automatically sets the dimension to batch_size
         # window 1 is fixed
-        self.input_window_1 = tf.placeholder(tf.float32, [None, window_size_1], name="input_window_1")
+        self.input_window_1 = tf.placeholder(tf.float32, [None, window_length], name="input_window_1")
         # window 2 is either consecutive, or randomly sampled
-        self.input_window_2 = tf.placeholder(tf.float32, [None, window_size_2], name="input_window_2")
+        self.input_window_2 = tf.placeholder(tf.float32, [None, window_neg_length], name="input_window_2")
         
         self.labels = tf.placeholder(tf.float32, [None, 1], name="labels")
         
@@ -309,11 +359,11 @@ class UnsupSeech(object):
         
         with slim.arg_scope([slim.conv2d, slim.fully_connected],  weights_initializer=tf.truncated_normal_initializer(stddev=0.01),
                                             #weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
-                                            #weights_regularizer=slim.l2_regularizer(0.0005),
+                                            weights_regularizer=slim.l2_regularizer(0.0005),
                                             activation_fn=lrelu,
-                                            biases_initializer = tf.constant_initializer(0.01)):
-                                            #normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
-                                            #normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
+                                            biases_initializer = tf.constant_initializer(0.01),
+                                            normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
+                                            normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
             with tf.variable_scope("unsupmodel"):
                 # a list of embeddings to use for the binary classifier (the embeddings are combined)
                 self.outs = []
@@ -403,7 +453,7 @@ class UnsupSeech(object):
                         #('pool1 shape:', TensorShape([Dimension(None), Dimension(1), Dimension(7), Dimension(80)]))
             
                         needs_flattening = True
-                        if FLAGS.with_dense_network:
+                        if FLAGS.embedding_transformation == "DenseNet":
                             
                             #with slim.arg_scope([slim.conv2d, slim.fully_connected], weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
                             #                    weights_regularizer=slim.l2_regularizer(0.0005),
@@ -421,7 +471,7 @@ class UnsupSeech(object):
         
                             print('pool shape after dense blocks:', pooled.get_shape())
         
-                        if FLAGS.with_vgg16:
+                        if FLAGS.embedding_transformation == "Vgg16":
                             pooled = vgg16(pooled)
                             print('pool shape after vgg16 block:', pooled.get_shape())
         
@@ -431,8 +481,13 @@ class UnsupSeech(object):
                             self.flattened_pooled = tf.reshape(pooled, [-1, flattened_size])
                         else:
                             self.flattened_pooled = pooled
+                        
+                        if FLAGS.embedding_transformation == "HighwayDnn":
+                            self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*4)
+                            for x in range(FLAGS.num_highway_layers):
+                                self.flattened_pooled = highway_layer(self.flattened_pooled, fc_size*4, lrelu, carry_bias=-1.0)
                             
-                        if FLAGS.with_baseline_dnn:
+                        if FLAGS.embedding_transformation == "BaselineDnn":
                             #with slim.arg_scope([slim.conv2d, slim.fully_connected], weights_initializer=tf.truncated_normal_initializer(0.0, 0.01)):
                                                 #weights_regularizer=slim.l2_regularizer(0.0005),
                                                 #biases_initializer = tf.constant_initializer(0.01) if not FLAGS.batch_normalization else None,
@@ -450,13 +505,17 @@ class UnsupSeech(object):
                         self.fc1 = slim.fully_connected(self.flattened_pooled, self.fc_size)#weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
                         print('fc1 shape:',self.fc1.get_shape())
                         self.outs.append(self.fc1)
-                        
-                #alternative self.outs[0] - self.outs[1]
-                stacked = self.outs[0] - self.outs[1] #tf.concat(self.outs, 1)
-                print('stacked shape:',stacked.get_shape())
                 
-                self.logits = slim.fully_connected(stacked,fc_size)
-                self.logits = slim.fully_connected(self.logits, 1, activation_fn=None)#weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
+                if FLAGS.use_dot_combine:
+                    # computes the dot product between self.outs[0] and self.outs[1]
+                    self.logits = tf.reduce_sum( tf.multiply(self.outs[0], self.outs[1]), 1, keep_dims=True)
+                else:
+                    # this is an alternative formulation that substracts self.outs[0] and self.outs[1] and projects down to 1
+                    stacked = self.outs[0] - self.outs[1] #tf.concat(self.outs, 1)
+                    print('stacked shape:',stacked.get_shape())
+                    
+                    self.logits = slim.fully_connected(stacked, self.embeddings_size)
+                    self.logits = slim.fully_connected(self.logits, 1, activation_fn=None)#weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
                 
                 if FLAGS.use_wighted_loss_func:
                     self.cost = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(targets=self.labels, logits=self.logits, pos_weight=(k-1.0)*self.labels+1.0))
@@ -467,21 +526,94 @@ class UnsupSeech(object):
         
                 if is_training:
                     self.create_training_graphs(create_new_train_dir)
-                    self.saver = tf.train.Saver(tf.global_variables())
+                
+                self.saver = tf.train.Saver(tf.global_variables())
 
     # do a training step with the supplied input data
     def step(self, sess, input_window_1, input_window_2, labels):
         feed_dict = {self.input_window_1: input_window_1, self.input_window_2: input_window_2, self.labels: labels}
         _, output, loss = sess.run([self.train_op, self.out, self.cost], feed_dict=feed_dict)
         return  output, loss
+
+    def gen_feat_batch(self, sess, input_windows):
+        feed_dict = {self.input_window_1: input_windows}
+        feats = sess.run(self.outs[0], feed_dict=feed_dict)
+        return feats
+
+def get_model_flags_param_short():
+    ''' get model params as string, e.g. to use it in an output filepath '''
+    return ('e2e' if FLAGS.end_to_end else '') + '_trans' + FLAGS.embedding_transformation + '_win' + str(FLAGS.window_length) + '_lcontexts' + str(FLAGS.left_contexts) + '_rcontexts' + str(FLAGS.right_contexts) + \
+                                    '_flts' + str(FLAGS.num_filters) + '_embsize' + str(FLAGS.embedding_size) + ('_dnn' + str(FLAGS.num_dnn_layers) if FLAGS.embedding_transformation=='BaselineDnn' else '') + \
+                                    ('_highwaydnn' + str(FLAGS.num_highway_layers) if FLAGS.embedding_transformation=='HighwayDnn' else '') + \
+                                    ('_dot_combine' if FLAGS.use_dot_combine else '')
+    
+def gen_feat(filelist, feats_outputfile, feats_format, hop_size):
+    filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
+    with tf.device('/gpu:1'):
+        with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
+            model = UnsupSeech(window_length=FLAGS.window_length, window_neg_length=FLAGS.window_neg_length, filter_sizes=filter_sizes, 
+                    num_filters=FLAGS.num_filters, fc_size=FLAGS.embedding_size, dropout_keep_prob=FLAGS.dropout_keep_prob, k = FLAGS.negative_samples, train_files = filelist,  batch_size=FLAGS.batch_size, is_training=False, create_new_train_dir=False)
+            
+            if FLAGS.train_dir != "":
+                print('FLAGS.train_dir',FLAGS.train_dir)
+                ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
+                print('ckpt:',ckpt)
+                if ckpt and ckpt.model_checkpoint_path:
+                    print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
+                    model.saver.restore(sess, ckpt.model_checkpoint_path)
+                    first_file = True
+                    
+                    window_length_seconds = float(FLAGS.window_length)/float(FLAGS.sample_rate)
+                    model_params = get_model_flags_param_short()
+                    
+                    outputfile = feats_outputfile.replace('%model_params', model_params)
+                    
+                    utils.ensure_dir(outputfile)
+                    
+                    # model is now loaded with the trained parameters
+                    for myfile in filelist:
+
+                        if feats_format == "unsup_challenge2017":
+                            input_signal = training_data[myfile]
+                            hop_size = int(float(FLAGS.window_length) / 2.5)
+                            print('Generate features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size)
+                            hop_size_seconds = float(hop_size)/float(FLAGS.sample_rate)
+                            feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size))
+                            out_filename = myfile.replace('.wav', '').replace('zerospeech2017/','zerospeech2017/'+FLAGS.model_name+model_params+'/') + '.fea'
+                            print('Writing to ', out_filename)
+                            utils.writeZeroSpeechFeatFile(feat, out_filename, window_length_seconds, hop_size_seconds )
+
+                        if feats_format == "kaldi_text":
+                            input_signal = training_data[myfile]
+                            hop_size = FLAGS.kaldi_hopsize
+                            print('Generate KALDI text features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size)
+                            feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size))
+                            utils.writeArkTextFeatFile(feat,  myfile.replace('.wav', '') , FLAGS.output_kaldi_ark, not first_file)
+                            first_file = False
+                            
+                        if feats_format == "kaldi_bin":           
+                            input_signal = training_data[myfile]
+                            
+                            print('Generate KALDI bin features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size)
+                            feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size))
+                            print('Done, writing to ' + outputfile)
+                            pointers = kaldi_io.writeArk(outputfile + '.ark', [feat], [file2id[myfile]], append = not first_file)
+                            kaldi_io.writeScp(outputfile + '.scp', [file2id[myfile]], pointers, append=not first_file)
+                            first_file = False
+
+                else:
+                    print("Could not open training dir: %s" % FLAGS.train_dir)
+            else:
+                print("Train_dir parameter is empty")    
     
 def train(filelist):
     filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
     with tf.device('/gpu:1'):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
-            model = UnsupSeech(window_size_1=FLAGS.window1_length, window_size_2=FLAGS.window2_length, filter_sizes=filter_sizes, 
+            model = UnsupSeech(window_length=FLAGS.window_length, window_neg_length=FLAGS.window_neg_length, filter_sizes=filter_sizes, 
                                 num_filters=FLAGS.num_filters, fc_size=FLAGS.fc_size, embeddings_size = FLAGS.embeddings_size, dropout_keep_prob=FLAGS.dropout_keep_prob, k = FLAGS.negative_samples ,train_files = filelist,  batch_size=FLAGS.batch_size)
             
+            training_start_time = time.time()
             restored = False
             if FLAGS.train_dir != "":
                 ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
@@ -515,13 +647,17 @@ def train(filelist):
                 current_step += 1
 
                 if current_step % FLAGS.steps_per_summary == 0 and summary_writer is not None:
-                    #input_window_1, input_window_2, labels = model.get_batch_k_samples(filelist=filelist, window_size_1=FLAGS.window1_length, window_size_2=FLAGS.window2_length, k=FLAGS.negative_samples)
-                    summary_str = sess.run(model.train_summary_op, feed_dict={model.input_window_1:input_window_1, model.input_window_2:input_window_2, model.labels: labels})
+                    #input_window_1, input_window_2, labels = model.get_batch_k_samples(filelist=filelist, window_length=FLAGS.window_length, window_neg_length=FLAGS.window_neg_length, k=FLAGS.negative_samples)
+                    summary_str = sess.run(model.train_summary_op, feed_dict={model.input_window_1:input_window_1,
+                                                                              model.input_window_2:input_window_2, model.labels: labels})
                     summary_writer.add_summary(summary_str, current_step)
 
                 # Get a batch and make a step.
                 start_time = time.time()
-                input_window_1, input_window_2, labels = model.get_batch_k_samples(filelist=filelist, window_size_1=FLAGS.window1_length, window_size_2=FLAGS.window2_length, k=FLAGS.negative_samples)
+                input_window_1, input_window_2, labels = model.get_batch_k_samples(filelist=filelist, window_length=FLAGS.window_length, 
+                                                                                   window_neg_length=FLAGS.window_neg_length, left_contexts=FLAGS.left_contexts,
+                                                                                   right_contexts=FLAGS.right_contexts, k=FLAGS.negative_samples)
+                
                 out, train_loss = model.step(sess, input_window_1, input_window_2, labels)
                 train_losses.append(train_loss)
 
@@ -548,7 +684,10 @@ def train(filelist):
                     print('majority class accuracy:', accuracy_score(labels, out_flat_zero))
                     
                     print('At step %i step-time %.4f loss %.4f' % (current_step, step_time, mean_train_loss))
-                    
+                    print('Model saving path is:', model.out_dir)
+                    print('Training started', (time.time() - training_start_time) / 3600.0,'hours ago.')
+                    print('FLAGS params in short:',get_model_flags_param_short())
+
                     train_losses = []
                     step_time = 0
                     if checkpoint_step % FLAGS.checkpoints_per_save == 0:
@@ -566,8 +705,9 @@ if __name__ == "__main__":
     FLAGS._parse_flags()
     print("\nParameters:")
     print(get_FLAGS_params_as_str())
-    filelist = utils.loadIdFile(FLAGS.filelist, 3000000)
-    print(filelist)
+    utt_ids, filelist = utils.loadIdFile(FLAGS.filelist, 3000000)
+    print(utt_ids, filelist)
+    #print(list(zip(utt_ids, filelist)))
 
     print('continuing training in 5 seconds...')
     time.sleep(5)
@@ -575,16 +715,28 @@ if __name__ == "__main__":
     if FLAGS.debug:
         filelist = filelist[:10]
 
-    for myfile in filelist:
+    file2id = {}
+
+    for utt_id, myfile in itertools.zip_longest(utt_ids,filelist):
 #    for myfile in [filelist[-1]]:   
         print('Loading:',myfile)
-        signal = np.float32(utils.getSignal(myfile)[0])
-        #convert and clip to -1.0 - 1.0 range
-        signal /= 32768.0
-        signal = np.fmax(-1.0,signal)
-        signal = np.fmin(1.0,signal)
+        signal, framerate = utils.getSignal(myfile)
+        if framerate != 16000:
+            print('Warning framerate != 16000:', framerate)
+       
+        if signal.dtype != 'float32':
+            print('dytpe is not float32', signal.dtype)
+            signal = signal.astype('float32')
+            #convert and clip to -1.0 - 1.0 range
+            signal /= 32768.0
+            signal = np.fmax(-1.0,signal)
+            signal = np.fmin(1.0,signal)
         
         training_data[myfile] = signal
-    
-    #todo add eval and writing out features
-    train(filelist)
+        
+        file2id[myfile] = utt_id
+        
+    if FLAGS.gen_feats:
+        gen_feat(filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize)
+    else:
+        train(filelist)

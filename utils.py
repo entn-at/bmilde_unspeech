@@ -4,6 +4,27 @@ import scipy
 import os
 import scipy.io.wavfile
 import tensorflow as tf
+import os.path
+import gzip
+import bz2
+import wavefile
+
+def smart_open(filename, mode = 'rb', *args, **kwargs):
+    '''
+    Opens a file "smartly":
+      * If the filename has a ".gz" or ".bz2" extension, compression is handled
+        automatically;
+      * If the file is to be read and does not exist, corresponding files with
+        a ".gz" or ".bz2" extension will be attempted.
+    '''
+    readers = {'.gz': gzip.GzipFile, '.bz2': bz2.BZ2File}
+    if 'r' in mode and not os.path.exists(filename):
+        for ext in readers:
+            if os.path.exists(filename + ext):
+                filename += ext
+                break
+    extension = os.path.splitext(filename)[1]
+    return readers.get(extension, open)(filename, mode, *args, **kwargs)
 
 #compresses the dynamic range, see https://en.wikipedia.org/wiki/%CE%9C-law_algorithm
 def encode_mulaw(signal,mu=255):
@@ -48,15 +69,39 @@ def loadIdFile(idfile,use_no_files=-1):
     ids = []
     with open(idfile) as f:
         ids = f.read().split('\n')[:use_no_files]
+    
+    ids = [myid for myid in ids if myid != '']
+    
+    if len(ids[0].split()) > 1:
+        utt_ids = []
+        wav_files = []
+        
+        for myid in ids:
+            print(myid)
+            split = myid.split()
+            utt_ids.append(split[0])
+            wav_files.append(split[1])
+    else:
+        utt_ids = []
+        wav_files = ids
     #check if ids exist
     #ids = [myid for myid in ids if os.path.ispath(myid)]
-    return [myid for myid in ids if myid != '']
+    return utt_ids, wav_files
 
-def getSignal(utterance):
+def getSignalOld(utterance):
     spf = wave.open(utterance, 'r')
     sound_info = spf.readframes(-1)
     signal = np.fromstring(sound_info, 'Int16')
     return signal, spf.getframerate()
+
+# This is needed since the old loader had problems with NIST headers from TIMIT. 
+# See also https://stackoverflow.com/questions/10187043/read-nist-wav-file-in-timit-database-into-python-numpy-array
+def getSignal(utterance):
+    samplerate, signal = wavefile.load(utterance)
+    print(signal)
+    signal = signal[0]
+    #print(utterance, 'dtype:', signal.dtype, 'min:', min(signal), 'max:', max(signal), 'samplerate:', samplerate)
+    return signal, samplerate
 
 def writeSignal(signal, myfile, rate=16000, do_decode_mulaw=False):
     if do_decode_mulaw:
@@ -74,11 +119,6 @@ def writeArkTextFeatFile(feat, feat_name, out_filename, append = False):
         for feat_vec in feat:
             feat_vec_str = ' '.join([str(elem) for elem in feat_vec])
             out_file.write(feat_vec_str)
-    
-def ensure_dir(file_path):
-    directory = os.path.dirname(file_path)
-    if not os.path.exists(directory):
-        os.makedirs(directory)
 
 def writeZeroSpeechFeatFile(feat, out_filename, window_length, hop_size):
     ensure_dir(out_filename)
