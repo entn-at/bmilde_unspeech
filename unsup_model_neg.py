@@ -524,7 +524,7 @@ class UnsupSeech(object):
                 
                 if FLAGS.use_wighted_loss_func:
                     # the goal of the weighting is do counterbalance class imbalances, so that negative and positive examples have a 50% weight in the final loss each 
-                    neg_coef = k / (self.left_contexts + self.right_contexts)
+                    neg_coef = float(k) / float(self.left_contexts + self.right_contexts)
                     self.cost = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(targets=self.labels, logits=self.logits, pos_weight=(neg_coef-1.0)*self.labels+1.0))
                 else:
                     self.cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=self.labels, logits=self.logits))
