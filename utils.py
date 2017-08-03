@@ -114,6 +114,18 @@ def loadUtt2Spk(utt_filename):
             utts[utt] = spk
     return utts
 
+def loadSpk2Utt(utt_filename):
+    spks = {}
+    with open(utt_filename) as utt_file:
+        for line in utt_file:
+            if line[-1] == '\n':
+                line = line[:-1]
+            split = line.split()
+            spk = split[0]
+            utt = split[1]
+            spks[spk] = utt
+    return spks
+
 def getSignalOld(utterance):
     spf = wave.open(utterance, 'r')
     sound_info = spf.readframes(-1)
