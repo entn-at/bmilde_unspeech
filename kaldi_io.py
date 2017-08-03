@@ -11,16 +11,19 @@ import struct
 from utils import smart_open
 
 def readString(f):
-    s = ""
+    s = b""
     while True:
         c = f.read(1)
-        if c == "": raise ValueError("EOF encountered while reading a string.")
-        if c == " ": return s
+        if c == b"": raise ValueError("EOF encountered while reading a string.")
+        if c == b" ": return s
         s += c
 
 def readInteger(f):
     n = ord(f.read(1))
-    return reduce(lambda x, y: x * 256 + ord(y), f.read(n)[::-1], 0)
+    integer = int.from_bytes(f.read(n), byteorder='little') # read an int from binary, python3 only
+    return integer
+    # python2 code (the above will not work in python2)
+    #return reduce(lambda x, y: x * 256 + ord(y), f.read(n)[::-1], 0)
 
 def readMatrix(f):
     header = f.read(2)
@@ -29,6 +32,7 @@ def readMatrix(f):
     format = readString(f)
     nRows = readInteger(f)
     nCols = readInteger(f)
+
     if format == b"DM":
         data = struct.unpack("<%dd" % (nRows * nCols), f.read(nRows * nCols * 8))
         data = numpy.array(data, dtype = "float64")
@@ -66,7 +70,8 @@ def readArk(filename, limit = numpy.inf):
     Reads the features in a Kaldi ark file.
     Returns a list of feature matrices and a list of the utterance IDs.
     """
-    features = []; uttids = []
+    features = []
+    uttids = []
     with smart_open(filename, "rb") as f:
         while True:
             try:
@@ -84,7 +89,8 @@ def readScp(filename, limit = numpy.inf):
     Reads the features in a Kaldi script file.
     Returns a list of feature matrices and a list of the utterance IDs.
     """
-    features = []; uttids = []
+    features = []
+    uttids = []
     with smart_open(filename, "r") as f:
         for line in f:
             uttid, pointer = line.strip().split()
