@@ -65,7 +65,7 @@ tf.flags.DEFINE_integer("num_highway_layers", 6, "How many layers for the highwa
 tf.flags.DEFINE_integer("num_dnn_layers", 3, "How many layers for the baseline dnn.")
 
 tf.flags.DEFINE_boolean("tied_embeddings_transforms", False, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
-tf.flags.DEFINE_boolean("use_wighted_loss_func", False, "Whether the class imbalance of having k negative samples should be countered by weighting the positive examples k-times more.")
+tf.flags.DEFINE_boolean("use_weighted_loss_func", False, "Whether the class imbalance of having k negative samples should be countered by weighting the positive examples k-times more.")
 tf.flags.DEFINE_boolean("use_dot_combine", True, "Define the loss function over the logits of the dot product of window and context window.")
 
 tf.flags.DEFINE_integer("negative_samples", 4, "How many negative samples to generate.")
@@ -522,8 +522,9 @@ class UnsupSeech(object):
                     self.logits = slim.fully_connected(stacked, self.embeddings_size)
                     self.logits = slim.fully_connected(self.logits, 1, activation_fn=None)#weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
                 
-                if FLAGS.use_wighted_loss_func:
-                    # the goal of the weighting is do counterbalance class imbalances, so that negative and positive examples have a 50% weight in the final loss each 
+                if FLAGS.use_weighted_loss_func and (k != self.left_contexts + self.right_contexts):
+                    # the goal of the weighting is do counterbalance class imbalances, so that negative and positive examples have a 50% weight in the final loss each
+                    # the weighting computation only works, if there is a counter balance:
                     neg_coef = float(k) / float(self.left_contexts + self.right_contexts)
                     self.cost = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(targets=self.labels, logits=self.logits, pos_weight=(neg_coef-1.0)*self.labels+1.0))
                 else:
