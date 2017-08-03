@@ -88,6 +88,32 @@ def loadIdFile(idfile,use_no_files=-1):
     #ids = [myid for myid in ids if os.path.ispath(myid)]
     return utt_ids, wav_files
 
+def loadPhnFile(phn_file):
+    positions = []
+    names = []
+    with open(phn_file) as phn:
+        for line in phn:
+            if line[-1] == '\n':
+                line = line[:-1]
+            split = line.split()
+            pos = (split[0],split[1])
+            name = split[-1]
+            positions.append(pos)
+            names.append(name)
+    return positions,names
+
+def loadUtt2Spk(utt_filename):
+    utts = {}
+    with open(utt_filename) as utt_file:
+        for line in utt_file:
+            if line[-1] == '\n':
+                line = line[:-1]
+            split = line.split()
+            utt = split[0]
+            spk = split[1]
+            utts[utt] = spk
+    return utts
+
 def getSignalOld(utterance):
     spf = wave.open(utterance, 'r')
     sound_info = spf.readframes(-1)
