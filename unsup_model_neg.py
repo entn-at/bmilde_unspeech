@@ -40,6 +40,7 @@ tf.flags.DEFINE_string("model_name", "feat1", "Model output name, currently only
 tf.flags.DEFINE_integer("sample_rate", 16000, "Sample rate of the audio files. Must have the same samplerate for all audio files.") # 100+ ms @ 16kHz
 tf.flags.DEFINE_string("filter_sizes", "512", "Comma-separated filter sizes (default: '200')") # 25ms @ 16kHz
 tf.flags.DEFINE_integer("num_filters", 40, "Number of filters per filter size (default: 40)")
+
 tf.flags.DEFINE_integer("window_length", 1024, "Main window length, samples (end-to-end) or frames (FBANK)") # 100+ ms @ 16kHz
 tf.flags.DEFINE_integer("window_neg_length", 1024, "Context window length, samples (end-to-end) or frames (FBANK)") # 100+ ms @ 16kHz
 
@@ -47,6 +48,11 @@ tf.flags.DEFINE_integer("left_contexts", 2, "How many left context windows")
 tf.flags.DEFINE_integer("right_contexts", 2, "How many right context windows")
 
 tf.flags.DEFINE_integer("embedding_size", 256 , "Fully connected size at the end of the network.")
+
+tf.flags.DEFINE_integer("fc_size", 1024 , "Fully connected size at the end of the network.")
+
+tf.flags.DEFINE_boolean("first_layer_tanh", True, "Whether tanh should be used for the output conv1d filters in end-to-end networks.")
+tf.flags.DEFINE_boolean("first_layer_log1p", True, "Whether log1p should be applied to the output of the conv1d filters.")
 
 tf.flags.DEFINE_string("embedding_transformation", "BaselineDnn", "What network to use for the embeddings computation. Vgg16, DenseNet, BaselineDnn, HighwayDnn.")
 
@@ -332,13 +338,14 @@ class UnsupSeech(object):
         return window_batch,window_neg_batch,labels
     
     
-    def __init__(self, window_length, window_neg_length, filter_sizes, num_filters, fc_size, dropout_keep_prob, train_files, k, is_training=True, create_new_train_dir=True, batch_size=128):
+    def __init__(self, window_length, window_neg_length, filter_sizes, num_filters, fc_size, embeddings_size, dropout_keep_prob, train_files, k, is_training=True, create_new_train_dir=True, batch_size=128):
 
         self.train_files = train_files
 
         self.window_length = window_length
         self.window_neg_length = window_neg_length
         self.fc_size = fc_size
+        self.embeddings_size = embeddings_size
 
         # None -> automatically sets the dimension to batch_size
         # window 1 is fixed
@@ -412,7 +419,14 @@ class UnsupSeech(object):
         
                         ## Apply nonlinearity
                         b = tf.Variable(tf.constant(0.01, shape=[num_filters]), name="bias1")
-                        conv = tf.nn.tanh(tf.nn.bias_add(conv, b), name="activation1")
+                        
+                        if FLAGS.first_layer_tanh:
+                            conv = tf.nn.tanh(tf.nn.bias_add(conv, b), name="activation1")
+                        else:
+                            conv = lrelu(tf.nn.bias_add(conv, b), name="activation1")
+        
+                        if FLAGS.first_layer_log1p:
+                            conv = tf.log1p(tf.abs(conv))
         
                         pool_input_dim = int(conv.get_shape()[1])
         
@@ -480,7 +494,7 @@ class UnsupSeech(object):
                                                 #normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
                                                 #normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
                             for x in range(FLAGS.num_dnn_layers):
-                                self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*4)                    
+                                self.flattened_pooled = slim.fully_connected(self.flattened_pooled, self.fc_size)                    
                    
                         #with tf.variable_scope('visualization_embedding'):
                         #    flattened_pooled_normalized = utils.tensor_normalize_0_to_1(self.flattened_pooled)
@@ -488,18 +502,19 @@ class UnsupSeech(object):
         
                         print('flattened_pooled shape:',self.flattened_pooled.get_shape())
         
-                        self.fc1 = slim.fully_connected(self.flattened_pooled, fc_size)#weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
+                        self.fc1 = slim.fully_connected(self.flattened_pooled, self.fc_size)#weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
                         print('fc1 shape:',self.fc1.get_shape())
                         self.outs.append(self.fc1)
                 
                 if FLAGS.use_dot_combine:
+                    # computes the dot product between self.outs[0] and self.outs[1]
                     self.logits = tf.reduce_sum( tf.multiply(self.outs[0], self.outs[1]), 1, keep_dims=True)
                 else:
-                    #alternative self.outs[0] - self.outs[1]
+                    # this is an alternative formulation that substracts self.outs[0] and self.outs[1] and projects down to 1
                     stacked = self.outs[0] - self.outs[1] #tf.concat(self.outs, 1)
                     print('stacked shape:',stacked.get_shape())
                     
-                    self.logits = slim.fully_connected(stacked,fc_size)
+                    self.logits = slim.fully_connected(stacked, self.embeddings_size)
                     self.logits = slim.fully_connected(self.logits, 1, activation_fn=None)#weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
                 
                 if FLAGS.use_wighted_loss_func:
@@ -596,7 +611,7 @@ def train(filelist):
     with tf.device('/gpu:1'):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
             model = UnsupSeech(window_length=FLAGS.window_length, window_neg_length=FLAGS.window_neg_length, filter_sizes=filter_sizes, 
-                                num_filters=FLAGS.num_filters, fc_size=FLAGS.embedding_size, dropout_keep_prob=FLAGS.dropout_keep_prob, k = FLAGS.negative_samples ,train_files = filelist,  batch_size=FLAGS.batch_size)
+                                num_filters=FLAGS.num_filters, fc_size=FLAGS.fc_size, embeddings_size = FLAGS.embeddings_size, dropout_keep_prob=FLAGS.dropout_keep_prob, k = FLAGS.negative_samples ,train_files = filelist,  batch_size=FLAGS.batch_size)
             
             training_start_time = time.time()
             restored = False
