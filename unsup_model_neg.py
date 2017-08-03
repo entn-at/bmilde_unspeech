@@ -20,12 +20,13 @@ import itertools
 
 from sklearn.metrics import accuracy_score
 
-from tensorflow.python.ops import control_flow_ops
+#from tensorflow.python.ops import control_flow_ops
 
 if sys.version_info[0] == 3:
     xrange = range
 
-tf.flags.DEFINE_string("filelist", "filelist.english.train", "Filelist, one wav file per line")
+tf.flags.DEFINE_string("filelist", "filelist.english.train", "Filelist, one wav file per line, optionally also an id (id wavfile per line).")
+tf.flags.DEFINE_string("utt2spk", "", "Optional, but required for per speaker negative sampling. ")
 tf.flags.DEFINE_boolean("end_to_end", True, "Use end-to-end learning (Input is 1D). Otherwise input is 2D like FBANK or MFCC features.")
 tf.flags.DEFINE_boolean("debug", False, "Limits the filelist size and is more debug.")
 
@@ -98,6 +99,8 @@ tf.flags.DEFINE_string("genfeat_hopsize", 160, "Hop size (in samples if end-to-e
 FLAGS = tf.flags.FLAGS
 
 training_data = {}
+#TODO load this correctly. Format: dict, spk -> list utt ids
+spk2utt_data = {}
 
 def get_FLAGS_params_as_str():
     params_str = ''
@@ -256,7 +259,7 @@ class UnsupSeech(object):
             self.train_summary_op = tf.summary.merge_all()
             train_summary_dir = os.path.join(self.out_dir, "summaries", "train")
     
-    def get_random_audiosample(self, window_size, random_file_num=None):
+    def get_random_audiosample(self, window_size, spk2utt=None , random_file_num=None):
         filelist_size = len(filelist)
         
         if random_file_num is None:
@@ -338,7 +341,7 @@ class UnsupSeech(object):
         return window_batch,window_neg_batch,labels
     
     
-    def __init__(self, window_length, window_neg_length, filter_sizes, num_filters, fc_size, embeddings_size, dropout_keep_prob, train_files, k, is_training=True, create_new_train_dir=True, batch_size=128):
+    def __init__(self, window_length, window_neg_length, filter_sizes, num_filters, fc_size, embeddings_size, dropout_keep_prob, train_files, k, left_contexts, right_contexts, is_training=True, create_new_train_dir=True, batch_size=128):
 
         self.train_files = train_files
 
@@ -346,6 +349,8 @@ class UnsupSeech(object):
         self.window_neg_length = window_neg_length
         self.fc_size = fc_size
         self.embeddings_size = embeddings_size
+        self.left_contexts = left_contexts
+        self.right_contexts = right_contexts
 
         # None -> automatically sets the dimension to batch_size
         # window 1 is fixed
@@ -518,7 +523,9 @@ class UnsupSeech(object):
                     self.logits = slim.fully_connected(self.logits, 1, activation_fn=None)#weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
                 
                 if FLAGS.use_wighted_loss_func:
-                    self.cost = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(targets=self.labels, logits=self.logits, pos_weight=(k-1.0)*self.labels+1.0))
+                    # the goal of the weighting is do counterbalance class imbalances, so that negative and positive examples have a 50% weight in the final loss each 
+                    neg_coef = k / (self.left_contexts + self.right_contexts)
+                    self.cost = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(targets=self.labels, logits=self.logits, pos_weight=(neg_coef-1.0)*self.labels+1.0))
                 else:
                     self.cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=self.labels, logits=self.logits))
         
@@ -552,7 +559,8 @@ def gen_feat(filelist, feats_outputfile, feats_format, hop_size):
     with tf.device('/gpu:1'):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
             model = UnsupSeech(window_length=FLAGS.window_length, window_neg_length=FLAGS.window_neg_length, filter_sizes=filter_sizes, 
-                    num_filters=FLAGS.num_filters, fc_size=FLAGS.embedding_size, dropout_keep_prob=FLAGS.dropout_keep_prob, k = FLAGS.negative_samples, train_files = filelist,  batch_size=FLAGS.batch_size, is_training=False, create_new_train_dir=False)
+                    num_filters=FLAGS.num_filters, fc_size=FLAGS.fc_size, emeddings_size=FLAGS.emeddings_size, dropout_keep_prob=FLAGS.dropout_keep_prob, k = FLAGS.negative_samples, 
+                    left_contexts=FLAGS.left_contexts, right_contexts=FLAGS.right_contexts, train_files = filelist,  batch_size=FLAGS.batch_size, is_training=False, create_new_train_dir=False)
             
             if FLAGS.train_dir != "":
                 print('FLAGS.train_dir',FLAGS.train_dir)
@@ -611,7 +619,8 @@ def train(filelist):
     with tf.device('/gpu:1'):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
             model = UnsupSeech(window_length=FLAGS.window_length, window_neg_length=FLAGS.window_neg_length, filter_sizes=filter_sizes, 
-                                num_filters=FLAGS.num_filters, fc_size=FLAGS.fc_size, embeddings_size = FLAGS.embeddings_size, dropout_keep_prob=FLAGS.dropout_keep_prob, k = FLAGS.negative_samples ,train_files = filelist,  batch_size=FLAGS.batch_size)
+                                num_filters=FLAGS.num_filters, fc_size=FLAGS.fc_size, embeddings_size = FLAGS.embeddings_size, dropout_keep_prob=FLAGS.dropout_keep_prob, 
+                                k = FLAGS.negative_samples, left_contexts=FLAGS.left_contexts, right_contexts=FLAGS.right_contexts, train_files = filelist,  batch_size=FLAGS.batch_size)
             
             training_start_time = time.time()
             restored = False
