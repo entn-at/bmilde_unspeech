@@ -75,7 +75,7 @@ def readArk(filename, limit = numpy.inf):
     with smart_open(filename, "rb") as f:
         while True:
             try:
-                uttid = readString(f)
+                uttid = readString(f).decode('utf-8')
             except ValueError:
                 break
             feature = readMatrix(f)
