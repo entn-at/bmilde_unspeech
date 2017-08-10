@@ -473,7 +473,7 @@ class UnsupSeech(object):
             
                             pooled = tf.reshape(pooled,[-1,pool_output_dim, num_filters, 1])
                         else:
-                            pooled = input_window
+                            pooled = tf.reshape(input_window, [-1, window_length , FLAGS.feat_size ,1])
                             
                         print('net input shape:',pooled.get_shape())
         
@@ -644,7 +644,7 @@ def train(utt_id_list, spk2utt=None, spk2len=None, num_speakers=None):
     with tf.device('/gpu:1'):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
             model = UnsupSeech(window_length=FLAGS.window_length, window_neg_length=FLAGS.window_neg_length, filter_sizes=filter_sizes, 
-                                num_filters=FLAGS.num_filters, fc_size=FLAGS.fc_size, embeddings_size = FLAGS.embeddings_size, dropout_keep_prob=FLAGS.dropout_keep_prob, 
+                                num_filters=FLAGS.num_filters, fc_size=FLAGS.fc_size, embeddings_size = FLAGS.embedding_size, dropout_keep_prob=FLAGS.dropout_keep_prob, 
                                 k = FLAGS.negative_samples, left_contexts=FLAGS.left_contexts, right_contexts=FLAGS.right_contexts, train_files = utt_id_list,  batch_size=FLAGS.batch_size)
             
             training_start_time = time.time()
