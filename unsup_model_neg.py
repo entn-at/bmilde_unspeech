@@ -169,11 +169,11 @@ def DenseFinal2D(l, name, pool_size=7):
 
 #from https://github.com/tensorflow/tensorflow/tree/r1.2/tensorflow/contrib/slim
 def vgg16(inputs):
-  with slim.arg_scope([slim.conv2d, slim.fully_connected],
-                      activation_fn=lrelu,
-                      weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
-                      weights_regularizer=slim.l2_regularizer(0.0005),
-                      biases_initializer = tf.constant_initializer(0.01)):
+#  with slim.arg_scope([slim.conv2d, slim.fully_connected],
+#                      activation_fn=lrelu,
+#                      weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
+#                      weights_regularizer=slim.l2_regularizer(0.0005),
+#                      biases_initializer = tf.constant_initializer(0.01)):
     print('vgg input shape:',inputs.get_shape())
     net = slim.repeat(inputs, 2, slim.conv2d, 16, [3, 3], scope='conv1')
     print('vgg input conv1 shape:', net.get_shape())
