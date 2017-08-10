@@ -8,6 +8,7 @@ import os.path
 import gzip
 import bz2
 import wavefile
+from collections import defaultdict
 
 def smart_open(filename, mode = 'rb', *args, **kwargs):
     '''
@@ -114,16 +115,18 @@ def loadUtt2Spk(utt_filename):
             utts[utt] = spk
     return utts
 
-def loadSpk2Utt(utt_filename):
-    spks = {}
+def loadSpk2Utt(utt_filename, ignore_dash_spk_id=True):
+    spks = defaultdict(list)
     with open(utt_filename) as utt_file:
         for line in utt_file:
             if line[-1] == '\n':
                 line = line[:-1]
             split = line.split()
             spk = split[0]
-            utt = split[1]
-            spks[spk] = utt
+            if ignore_dash_spk_id and '-' in spk:
+                spk = spk.split('-')[0]
+            utt = split[1:]
+            spks[spk] += utt
     return spks
 
 def getSignalOld(utterance):
