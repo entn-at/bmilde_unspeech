@@ -473,7 +473,7 @@ class UnsupSeech(object):
             
                             pooled = tf.reshape(pooled,[-1,pool_output_dim, num_filters, 1])
                         else:
-                            pooled = input_window
+                            pooled = tf.reshape(input_window, [-1, window_length , FLAGS.feat_size ,1])
                             
                         print('net input shape:',pooled.get_shape())
         
