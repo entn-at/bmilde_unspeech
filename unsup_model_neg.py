@@ -51,9 +51,9 @@ tf.flags.DEFINE_integer("window_neg_length", 50, "Context window length, samples
 tf.flags.DEFINE_integer("left_contexts", 2, "How many left context windows")
 tf.flags.DEFINE_integer("right_contexts", 2, "How many right context windows")
 
-tf.flags.DEFINE_integer("embedding_size", 256 , "Fully connected size at the end of the network.")
+tf.flags.DEFINE_integer("embedding_size", 100 , "Fully connected size at the end of the network.")
 
-tf.flags.DEFINE_integer("fc_size", 1024 , "Fully connected size at the end of the network.")
+tf.flags.DEFINE_integer("fc_size", 512 , "Fully connected size at the end of the network.")
 
 tf.flags.DEFINE_boolean("first_layer_tanh", True, "Whether tanh should be used for the output conv1d filters in end-to-end networks.")
 tf.flags.DEFINE_boolean("first_layer_log1p", True, "Whether log1p should be applied to the output of the conv1d filters.")
@@ -179,15 +179,15 @@ def vgg16(inputs):
     print('vgg input conv1 shape:', net.get_shape())
     net = slim.max_pool2d(net, [2, 2], scope='pool1')
     print('vgg input pool1 shape:', net.get_shape())
-    net = slim.repeat(net, 2, slim.conv2d, 16, [3, 3], scope='conv2')
+    net = slim.repeat(net, 2, slim.conv2d, 32, [3, 3], scope='conv2')
     print('vgg input conv2 shape:', net.get_shape())
     net = slim.max_pool2d(net, [2, 2], scope='pool2')
     print('vgg input pool2 shape:', net.get_shape())
-    net = slim.repeat(net, 3, slim.conv2d, 16, [3, 3], scope='conv3')
+    net = slim.repeat(net, 3, slim.conv2d, 64, [3, 3], scope='conv3')
     print('vgg input conv3 shape:', net.get_shape())
     net = slim.max_pool2d(net, [2, 2], scope='pool3')
     print('vgg input pool3 shape:', net.get_shape())
-    net = slim.repeat(net, 3, slim.conv2d, 16, [3, 3], scope='conv4')
+    net = slim.repeat(net, 3, slim.conv2d, 64, [3, 3], scope='conv4')
     print('vgg input conv4 shape:', net.get_shape())
     net = slim.max_pool2d(net, [2, 2], scope='pool4')
     print('vgg input pool4 shape:', net.get_shape())
@@ -392,8 +392,8 @@ class UnsupSeech(object):
             with tf.variable_scope("unsupmodel"):
                 # a list of embeddings to use for the binary classifier (the embeddings are combined)
                 self.outs = []
-                with tf.variable_scope("embedding-transform"):
-                    for i,input_window in enumerate([self.input_window_1, self.input_window_2]):
+                for i,input_window in enumerate([self.input_window_1, self.input_window_2]):
+                    with tf.variable_scope("embedding-transform" if FLAGS.tied_embeddings_transforms else "embedding-transform-" + str(i)):     
                         if FLAGS.tied_embeddings_transforms and i > 0: 
                             print("Reusing variables for embeddings computation.")
                             tf.get_variable_scope().reuse_variables()
