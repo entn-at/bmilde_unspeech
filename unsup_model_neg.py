@@ -16,7 +16,7 @@ import utils
 import math
 import kaldi_io
 import itertools
-
+import pylab as plt
 
 from sklearn.metrics import accuracy_score
 
@@ -25,12 +25,15 @@ from sklearn.metrics import accuracy_score
 if sys.version_info[0] == 3:
     xrange = range
 
-tf.flags.DEFINE_string("filelist", "filelist.english.train", "Filelist, one wav file per line, optionally also an id (id wavfile per line).")
-tf.flags.DEFINE_string("utt2spk", "", "Optional, but required for per speaker negative sampling. ")
-tf.flags.DEFINE_boolean("end_to_end", True, "Use end-to-end learning (Input is 1D). Otherwise input is 2D like FBANK or MFCC features.")
+tf.flags.DEFINE_string("filelist", "filelist.english.train", "Kaldi scp file if using kaldi feats, or for end-to-end learning a simple filelist, one wav file per line, optionally also an id (id wavfile per line).")
+tf.flags.DEFINE_string("spk2utt", "", "Optional, but required for per speaker negative sampling. ")
+tf.flags.DEFINE_boolean("end_to_end", False, "Use end-to-end learning (Input is 1D). Otherwise input is 2D like FBANK or MFCC features.")
+tf.flags.DEFINE_boolean("feat_size", 40, "Size of the features inner dimension (only used if not using end-to-end training).")
+
 tf.flags.DEFINE_boolean("debug", False, "Limits the filelist size and is more debug.")
 
 tf.flags.DEFINE_boolean("gen_feats", False, "Load a model from train_dir")
+tf.flags.DEFINE_boolean("test_sampling", False, "Test the sampling algorithm")
 
 tf.flags.DEFINE_boolean("generate_kaldi_output_feats", False, "Whether to write out a feature file for Kaldi (containing all utterances), requires a trained model")
 tf.flags.DEFINE_string("output_kaldi_ark", "output_kaldi.ark" , "Output file for Kaldi ark file")
@@ -42,8 +45,8 @@ tf.flags.DEFINE_integer("sample_rate", 16000, "Sample rate of the audio files. M
 tf.flags.DEFINE_string("filter_sizes", "512", "Comma-separated filter sizes (default: '200')") # 25ms @ 16kHz
 tf.flags.DEFINE_integer("num_filters", 40, "Number of filters per filter size (default: 40)")
 
-tf.flags.DEFINE_integer("window_length", 1024, "Main window length, samples (end-to-end) or frames (FBANK)") # 100+ ms @ 16kHz
-tf.flags.DEFINE_integer("window_neg_length", 1024, "Context window length, samples (end-to-end) or frames (FBANK)") # 100+ ms @ 16kHz
+tf.flags.DEFINE_integer("window_length", 50, "Main window length, samples (end-to-end) or frames (FBANK)") # 100+ ms @ 16kHz
+tf.flags.DEFINE_integer("window_neg_length", 50, "Context window length, samples (end-to-end) or frames (FBANK)") # 100+ ms @ 16kHz
 
 tf.flags.DEFINE_integer("left_contexts", 2, "How many left context windows")
 tf.flags.DEFINE_integer("right_contexts", 2, "How many right context windows")
@@ -218,6 +221,97 @@ def highway_layer(x, size, activation, carry_bias=-1.0):
     y = tf.add(tf.multiply(H, T), tf.multiply(x, C), name='y') # y = (H * T) + (x * C)
     return y
 
+
+def get_random_audiosample(idlist, idlist_size, window_size, random_id=None, spk_id=None, spk2utt=None, spk2utt_keys= None , num_speakers = 0, spk2len=None, debug=False):
+
+    # sample over a random file, if no specific one was specified
+    if spk_id is None and random_id is None:
+        random_id_num = int(math.floor(np.random.random_sample() * float(idlist_size)))
+        # if spk2utt is supplied, we sample a speaker first, then a utterance id
+        if spk2utt is not None:
+            random_spk_num = int(math.floor(np.random.random_sample() * float(num_speakers)))
+            spk_id = spk2utt_keys[random_spk_num]
+            random_id_num = int(math.floor(np.random.random_sample() * float(spk2len[spk_id])))
+            random_id = spk2utt[spk_id][random_id_num]
+            if debug:
+                print('[get_random_audiosample] Selecting sample:', 'speaker:',spk_id, 'uttid:', random_id)
+
+        else:
+            random_id = idlist[random_id_num]
+    else:
+        if spk_id is not None:
+            print(spk2utt[spk_id],spk2len[spk_id])
+            random_id_num = int(math.floor(np.random.random_sample() * float(spk2len[spk_id])))
+            random_id = spk2utt[spk_id][random_id_num]  
+        else:
+            random_id = idlist[random_id_num]
+        if debug:
+            print('[get_random_audiosample] Selecting sample:', 'speaker:',spk_id, 'uttid:', random_id)
+
+        
+    audio_data = training_data[random_id]
+    audio_len = audio_data.shape[0] - window_size
+    random_pos_num = int(math.floor(np.random.random_sample() * audio_len))
+    
+    if debug:
+        print('[get_random_audiosample] Select position:', random_pos_num,'window_size:',window_size)
+    
+    return np.array(audio_data[random_pos_num:random_pos_num+window_size]), spk_id
+   
+
+# does a batch where one of the examples are two windows with consecutive signals and k randomly selected window_2s
+#, with a fixed window1
+def get_batch_k_samples(idlist, window_length, window_neg_length, spk2utt=None, spk2len=None, num_speakers = 0, left_contexts=0, right_contexts=1 , k=4, debug=False):            
+    window_batch = []
+    window_neg_batch = []
+    labels = []
+    
+    idlist_size = len(idlist)
+    spk_id=None
+    spk2utt_keys = list(spk2utt.keys())
+    
+    for i in xrange(FLAGS.batch_size*(k+1)):
+        if i%(k+1)==0:
+            if debug:
+                print('Selecting true sample.')
+            # Get a large sample to fit all the windows. Also get a speaker id, if we have speaker information (spk2utt!=None) and want to sample per speaker. 
+            combined_sample, spk_id = get_random_audiosample(idlist, idlist_size, window_length+window_neg_length*(left_contexts+right_contexts), spk2utt=spk2utt, spk2utt_keys=spk2utt_keys,  num_speakers=num_speakers, spk2len=spk2len)
+            # Getting all the context pairs, e.g. context_num goes from -2 to 2 for left_contexts=2 and right_contexts=2
+            center_window_pos = window_neg_length*left_contexts
+            for context_num in xrange(-1*left_contexts, right_contexts+1):
+                if context_num < 0:
+                    neg_pos = (left_contexts+context_num)*window_neg_length
+                elif context_num > 0:
+                    neg_pos = center_window_pos+window_length+(context_num-1)*window_neg_length
+                if context_num !=0:
+                    window = combined_sample[center_window_pos:center_window_pos+window_length]
+                    window_neg = combined_sample[neg_pos:neg_pos+window_neg_length] 
+                    # Assign label 1, if both windows are consecutive    
+                    labels.append(1.0)
+                    window_batch.append(window)
+                    window_neg_batch.append(window_neg)
+        else:
+            
+            if debug:
+                print('Selecting random sample from speaker:',spk_id)
+            # Select two random samples. If we do per speaker sampling, then spk_id!= None and two samples from the same speaker are sampled.
+            # Otherwise, if random_file_num is not None, we do per utterance sampling.
+            window, _ = get_random_audiosample(idlist, idlist_size, window_length, random_id=None, spk2utt=spk2utt, spk_id=spk_id, spk2utt_keys=spk2utt_keys, num_speakers=num_speakers, spk2len=spk2len)
+            window_neg, _ = get_random_audiosample(idlist, idlist_size, window_neg_length, random_id=None, spk2utt=spk2utt, spk_id=spk_id, spk2utt_keys=spk2utt_keys, num_speakers=num_speakers, spk2len= spk2len)
+            # Assign label 0, if both windows are randomly sampled
+            labels.append(0.0)
+            
+            window_batch.append(window)
+            window_neg_batch.append(window_neg)
+
+    labels = np.asarray(labels).reshape(-1,1)
+
+    #if self.first_call_to_get_batch:
+    #    print("window_batch,",[elem[:5] for elem in window_batch],"window_neg_batch,",[elem[:5] for elem in window_neg_batch],"labels",labels) 
+    #    self.first_call_to_get_batch = False
+
+    return window_batch,window_neg_batch,labels
+
 class UnsupSeech(object):
     """
     Unsupervised learning with RAW speech signals. This model learns a speech representation by u
@@ -259,89 +353,7 @@ class UnsupSeech(object):
             self.train_summary_op = tf.summary.merge_all()
             train_summary_dir = os.path.join(self.out_dir, "summaries", "train")
     
-    def get_random_audiosample(self, window_size, spk2utt=None , random_file_num=None):
-        filelist_size = len(filelist)
-        
-        if random_file_num is None:
-            random_file_num = int(math.floor(np.random.random_sample() * filelist_size))
-        random_file = filelist[random_file_num]
-        audio_data = training_data[random_file]
-        audio_len = audio_data.shape[0] - window_size
-        random_pos_num = int(math.floor(np.random.random_sample() * audio_len))
-        
-        return np.array(audio_data[random_pos_num:random_pos_num+window_size])
-   
-
-    # does a batch where one of the examples are two windows with consecutive signals and k randomly selected window_2s
-    #, with a fixed window1
-    def get_batch_k_samples(self, filelist, window_length, window_neg_length, left_contexts=0, right_contexts=1 , k=4):            
-        window_batch = []
-        window_neg_batch = []
-        labels = []
-        
-        for i in xrange(FLAGS.batch_size*(k+1)):
-            if i%(k+1)==0:
-                combined_sample = self.get_random_audiosample(window_length+window_neg_length*(left_contexts+right_contexts))
-                # getting all the context pairs, e.g. context_num goes from -2 to 2 for left_contexts=2 and right_contexts=2
-                center_window_pos = window_neg_length*left_contexts
-                for context_num in xrange(-1*left_contexts, right_contexts+1):
-                    if context_num < 0:
-                        neg_pos = (left_contexts+context_num)*window_neg_length
-                    elif context_num > 0:
-                        neg_pos = center_window_pos+window_length+(context_num-1)*window_neg_length
-                    if context_num !=0:
-                        window = combined_sample[center_window_pos:center_window_pos+window_length]
-                        window_neg = combined_sample[neg_pos:neg_pos+window_neg_length] 
-                        #assign label 1, if both windows are consecutive    
-                        labels.append(1.0)
-                        window_batch.append(window)
-                        window_neg_batch.append(window_neg)
-            else:
-                random_file_num = int(math.floor(np.random.random_sample() * len(filelist)))
-                # just select two random samples. Todo, other sampling strategies?
-                window = self.get_random_audiosample(window_length, random_file_num=random_file_num)
-                window_neg = self.get_random_audiosample(window_neg_length, random_file_num=random_file_num)
-                #assign label 0, if both windows are randomly selected
-                labels.append(0.0)
-                
-                window_batch.append(window)
-                window_neg_batch.append(window_neg)
-
-        labels = np.asarray(labels).reshape(-1,1)
-
-        #if self.first_call_to_get_batch:
-        #    print("window_batch,",[elem[:5] for elem in window_batch],"window_neg_batch,",[elem[:5] for elem in window_neg_batch],"labels",labels) 
-        #    self.first_call_to_get_batch = False
-
-        return window_batch,window_neg_batch,labels
-     
-    # similar to get_batch_k_samples, but with true_context_window2_probability we select either two neighbooring pairs or two random audio snippets
-    def get_batch_randomized(self, filelist, window_length, window_neg_length, true_context_window2_probability=0.5):            
-        window_batch = []
-        window_neg_batch = []
-        labels = []
-        
-        for i in xrange(FLAGS.batch_size):
-            if np.random.random_sample() <= true_context_window2_probability: 
-                combined_sample = self.get_random_audiosample(window_length+window_neg_length)
-                window1 = combined_sample[:window_length]
-                window2 = combined_sample[window_length:]
-                #assign label 1, if both windows are consecutive
-                labels.append(1.0)
-                
-            else:
-                window1 = self.get_random_audiosample(window_length)
-                window2 = self.get_random_audiosample(window_neg_length)
-                #assign label 0, if both windows are randomly selected 
-                labels.append(0.0)
-                
-            window_batch.append(window1)
-            window_neg_batch.append(window2)
-
-        return window_batch,window_neg_batch,labels
-    
-    
-    def __init__(self, window_length, window_neg_length, filter_sizes, num_filters, fc_size, embeddings_size, dropout_keep_prob, train_files, k, left_contexts, right_contexts, is_training=True, create_new_train_dir=True, batch_size=128):
+    def __init__(self, window_length, window_neg_length, filter_sizes, num_filters, fc_size, embeddings_size, dropout_keep_prob, train_files, k, left_contexts, right_contexts, is_training=True, create_new_train_dir=True, batch_size=128, feat_size=40):
 
         self.train_files = train_files
 
@@ -352,11 +364,18 @@ class UnsupSeech(object):
         self.left_contexts = left_contexts
         self.right_contexts = right_contexts
 
-        # None -> automatically sets the dimension to batch_size
-        # window 1 is fixed
-        self.input_window_1 = tf.placeholder(tf.float32, [None, window_length], name="input_window_1")
-        # window 2 is either consecutive, or randomly sampled
-        self.input_window_2 = tf.placeholder(tf.float32, [None, window_neg_length], name="input_window_2")
+        # feat_size of 0 means were gonig end-to-end with 1d samples
+        if feat_size == 0:
+            # window 1 is fixed
+            self.input_window_1 = tf.placeholder(tf.float32, [None, window_length], name="input_window_1")
+            # window 2 is either consecutive, or randomly sampled
+            self.input_window_2 = tf.placeholder(tf.float32, [None, window_neg_length], name="input_window_2")
+        else:
+            # standard speech features, e.g. FBANK in 2D
+            # window 1 is fixed
+            self.input_window_1 = tf.placeholder(tf.float32, [None, window_length, feat_size], name="input_window_1")
+            # window 2 is either consecutive, or randomly sampled
+            self.input_window_2 = tf.placeholder(tf.float32, [None, window_neg_length, feat_size], name="input_window_2")
         
         self.labels = tf.placeholder(tf.float32, [None, 1], name="labels")
         
@@ -379,79 +398,84 @@ class UnsupSeech(object):
                             tf.get_variable_scope().reuse_variables()
                         #input_reshaped = tf.reshape(self.input_x, [-1, 1, window_length, 1])
                         window_length = int(input_window.get_shape()[1])
-                        input_reshaped = tf.reshape(input_window, [-1, window_length, 1])
+                        
+                        if feat_size == 0:
+                            #1conv over 1d samples
+                            input_reshaped = tf.reshape(input_window, [-1, window_length, 1])
+                
+                            print('input_shape:', input_reshaped)
+                
+                            self.pooled_outputs = []
+                
+                            #currently we only support one filtersize (but we could extend)
+                            #for i, filter_size in enumerate(filter_sizes):
+                            filter_size = filter_sizes[0]
+        
+                            # 2D conv
+                            # [filter_height, filter_width, in_channels, out_channels]
+                            
+                            # 1D conv:
+                            # [filter_width, in_channels, out_channels]
+        
+                            print('Filter size is:', filter_size)
+                            
+                            #this would be the filter for a conv2d:
+                            #filter_shape = [1 , filter_size, 1, num_filters]
+                        
+                            filter_shape = [filter_size, 1, num_filters]
+                            print('filter_shape:',filter_shape)
+                            W = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.01), name="W")
+                            #W = tf.get_variable("W",shape=filter_shape,initializer=tf.contrib.layers.xavier_initializer_conv2d())
+                            
             
-                        print('input_shape:', input_reshaped)
+                            # 1D conv without padding(padding=VALID)
+                            #conv = tf.nn.conv2d(input_reshaped,W,strides=[1, 1, 2, 1],padding="VALID",name="conv")
             
-                        self.pooled_outputs = []
+                            conv = tf.nn.conv1d(input_reshaped, W, stride=2, padding="VALID",name="conv1")
             
-                        #currently we only support one filtersize (but we could extend)
-                        #for i, filter_size in enumerate(filter_sizes):
-                        filter_size = filter_sizes[0]
-    
-                        # 2D conv
-                        # [filter_height, filter_width, in_channels, out_channels]
-                        
-                        # 1D conv:
-                        # [filter_width, in_channels, out_channels]
-    
-                        print('Filter size is:', filter_size)
-                        
-                        #this would be the filter for a conv2d:
-                        #filter_shape = [1 , filter_size, 1, num_filters]
-                    
-                        filter_shape = [filter_size, 1, num_filters]
-                        print('filter_shape:',filter_shape)
-                        W = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.01), name="W")
-                        #W = tf.get_variable("W",shape=filter_shape,initializer=tf.contrib.layers.xavier_initializer_conv2d())
-                        
-        
-                        # 1D conv without padding(padding=VALID)
-                        #conv = tf.nn.conv2d(input_reshaped,W,strides=[1, 1, 2, 1],padding="VALID",name="conv")
-        
-                        conv = tf.nn.conv1d(input_reshaped, W, stride=2, padding="VALID",name="conv1")
-        
-                        with tf.variable_scope('visualization_conv1d'):
-                            # scale weights to [0 1], type is still float
-                            kernel_0_to_1 = utils.tensor_normalize_0_to_1(W) 
-        
-                            # to tf.image_summary format [batch_size, height, width, channels]
-                            kernel_transposed = tf.transpose(kernel_0_to_1, [2, 0, 1])
-                            kernel_transposed = tf.expand_dims(kernel_transposed, 0)
-        
-                            # this will display random 3 filters from the 64 in conv1
-                            tf.summary.image('conv1d_filters', kernel_transposed) #, max_images=3)
-        
-                        ## Apply nonlinearity
-                        b = tf.Variable(tf.constant(0.01, shape=[num_filters]), name="bias1")
-                        
-                        if FLAGS.first_layer_tanh:
-                            conv = tf.nn.tanh(tf.nn.bias_add(conv, b), name="activation1")
+                            with tf.variable_scope('visualization_conv1d'):
+                                # scale weights to [0 1], type is still float
+                                kernel_0_to_1 = utils.tensor_normalize_0_to_1(W) 
+            
+                                # to tf.image_summary format [batch_size, height, width, channels]
+                                kernel_transposed = tf.transpose(kernel_0_to_1, [2, 0, 1])
+                                kernel_transposed = tf.expand_dims(kernel_transposed, 0)
+            
+                                # this will display random 3 filters from the 64 in conv1
+                                tf.summary.image('conv1d_filters', kernel_transposed) #, max_images=3)
+            
+                            ## Apply nonlinearity
+                            b = tf.Variable(tf.constant(0.01, shape=[num_filters]), name="bias1")
+                            
+                            if FLAGS.first_layer_tanh:
+                                conv = tf.nn.tanh(tf.nn.bias_add(conv, b), name="activation1")
+                            else:
+                                conv = lrelu(tf.nn.bias_add(conv, b), name="activation1")
+            
+                            if FLAGS.first_layer_log1p:
+                                conv = tf.log1p(tf.abs(conv))
+            
+                            pool_input_dim = int(conv.get_shape()[1])
+            
+                            print('pool input dim:', pool_input_dim)
+                            print('conv1 shape:',conv.get_shape())
+                            # Temporal maxpool accross all filters, pool size 2
+                            #pooled = tf.nn.max_pool(conv,ksize=[1, 1, pool_input_dim / 8, 1], # max_pool over / 4 of inputsize filters
+                            #                        strides=[1, 1, pool_input_dim / 16 , 1], # hopped by / 8 of input size
+                            #                        padding='VALID',name="pool")
+            
+                            # check if the 1d pooling operation is correct
+                            pooled = pool1d(conv, ksize=[1, 2 , 1], strides=[1, 2 , 1], padding='VALID',name="pool")
+                            print('pool1 shape:',pooled.get_shape())
+            
+                            pool_output_dim = int(pooled.get_shape()[1])
+                            print('pool_output_dim shape:',pooled.get_shape())
+            
+                            pooled = tf.reshape(pooled,[-1,pool_output_dim, num_filters, 1])
                         else:
-                            conv = lrelu(tf.nn.bias_add(conv, b), name="activation1")
-        
-                        if FLAGS.first_layer_log1p:
-                            conv = tf.log1p(tf.abs(conv))
-        
-                        pool_input_dim = int(conv.get_shape()[1])
-        
-                        print('pool input dim:', pool_input_dim)
-                        print('conv1 shape:',conv.get_shape())
-                        # Temporal maxpool accross all filters, pool size 2
-                        #pooled = tf.nn.max_pool(conv,ksize=[1, 1, pool_input_dim / 8, 1], # max_pool over / 4 of inputsize filters
-                        #                        strides=[1, 1, pool_input_dim / 16 , 1], # hopped by / 8 of input size
-                        #                        padding='VALID',name="pool")
-        
-                        # check if the 1d pooling operation is correct
-                        pooled = pool1d(conv, ksize=[1, 2 , 1], strides=[1, 2 , 1], padding='VALID',name="pool")
-                        print('pool1 shape:',pooled.get_shape())
-        
-                        pool_output_dim = int(pooled.get_shape()[1])
-                        print('pool_output_dim shape:',pooled.get_shape())
-        
-                        pooled = tf.reshape(pooled,[-1,pool_output_dim, num_filters, 1])
-        
-                        print('pool1 reshaped shape:',pooled.get_shape())
+                            pooled = input_window
+                            
+                        print('net input shape:',pooled.get_shape())
         
                         #input shape: batch, in_height, in_width, in_channels
                         #filter shape: filter_height, filter_width, in_channels, out_channels
@@ -555,13 +579,13 @@ def get_model_flags_param_short():
                                     ('_highwaydnn' + str(FLAGS.num_highway_layers) if FLAGS.embedding_transformation=='HighwayDnn' else '') + \
                                     ('_dot_combine' if FLAGS.use_dot_combine else '')
     
-def gen_feat(filelist, feats_outputfile, feats_format, hop_size):
+def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size):
     filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
     with tf.device('/gpu:1'):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
             model = UnsupSeech(window_length=FLAGS.window_length, window_neg_length=FLAGS.window_neg_length, filter_sizes=filter_sizes, 
                     num_filters=FLAGS.num_filters, fc_size=FLAGS.fc_size, emeddings_size=FLAGS.emeddings_size, dropout_keep_prob=FLAGS.dropout_keep_prob, k = FLAGS.negative_samples, 
-                    left_contexts=FLAGS.left_contexts, right_contexts=FLAGS.right_contexts, train_files = filelist,  batch_size=FLAGS.batch_size, is_training=False, create_new_train_dir=False)
+                    left_contexts=FLAGS.left_contexts, right_contexts=FLAGS.right_contexts, train_files = utt_id_list,  batch_size=FLAGS.batch_size, is_training=False, create_new_train_dir=False)
             
             if FLAGS.train_dir != "":
                 print('FLAGS.train_dir',FLAGS.train_dir)
@@ -615,13 +639,13 @@ def gen_feat(filelist, feats_outputfile, feats_format, hop_size):
             else:
                 print("Train_dir parameter is empty")    
     
-def train(filelist):
+def train(utt_id_list, spk2utt=None, spk2len=None, num_speakers=None):
     filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
     with tf.device('/gpu:1'):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
             model = UnsupSeech(window_length=FLAGS.window_length, window_neg_length=FLAGS.window_neg_length, filter_sizes=filter_sizes, 
                                 num_filters=FLAGS.num_filters, fc_size=FLAGS.fc_size, embeddings_size = FLAGS.embeddings_size, dropout_keep_prob=FLAGS.dropout_keep_prob, 
-                                k = FLAGS.negative_samples, left_contexts=FLAGS.left_contexts, right_contexts=FLAGS.right_contexts, train_files = filelist,  batch_size=FLAGS.batch_size)
+                                k = FLAGS.negative_samples, left_contexts=FLAGS.left_contexts, right_contexts=FLAGS.right_contexts, train_files = utt_id_list,  batch_size=FLAGS.batch_size)
             
             training_start_time = time.time()
             restored = False
@@ -664,9 +688,10 @@ def train(filelist):
 
                 # Get a batch and make a step.
                 start_time = time.time()
-                input_window_1, input_window_2, labels = model.get_batch_k_samples(filelist=filelist, window_length=FLAGS.window_length, 
+                input_window_1, input_window_2, labels = get_batch_k_samples(idlist=utt_id_list, window_length=FLAGS.window_length, 
                                                                                    window_neg_length=FLAGS.window_neg_length, left_contexts=FLAGS.left_contexts,
-                                                                                   right_contexts=FLAGS.right_contexts, k=FLAGS.negative_samples)
+                                                                                   right_contexts=FLAGS.right_contexts, k=FLAGS.negative_samples, 
+                                                                                   spk2utt=spk2utt, spk2len=spk2len , num_speakers=num_speakers)
                 
                 out, train_loss = model.step(sess, input_window_1, input_window_2, labels)
                 train_losses.append(train_loss)
@@ -710,43 +735,153 @@ def train(filelist):
                             model.saver.save(sess, model.out_dir, global_step=model.global_step)
                             previous_losses.append(mean_train_loss)
 
+def compute_spk2len(spk2utt):
+    return {spk: len(spk2utt[spk]) for spk in spk2utt.keys()}
+
+def test_sampling(utt_id_list, spk2utt=None, spk2len=None, num_speakers=0 ):
+    print('Generating sample:')
+    print('test_sampling:', spk2utt[0])
+    input_window_1, input_window_2, labels = get_batch_k_samples(idlist=utt_id_list, window_length=FLAGS.window_length, 
+                                                                       window_neg_length=FLAGS.window_neg_length, left_contexts=FLAGS.left_contexts,
+                                                                       right_contexts=FLAGS.right_contexts, k=FLAGS.negative_samples, debug=True,
+                                                                       spk2utt=spk2utt, spk2len=spk2len , num_speakers=num_speakers)
+    
+    batch_size = len(input_window_1)
+    
+    print('num_speakers:', num_speakers)
+    print('batch_size:', batch_size)
+    print('Now plotting sample.')
+    
+    plt.figure(0)
+    
+    task_length = 2*(FLAGS.right_contexts + FLAGS.left_contexts)
+    
+    complete_window_seq = []
+    for i in xrange(FLAGS.left_contexts):
+        complete_window_seq.append(input_window_2[i])
+   
+    complete_window_seq.append(input_window_1[0])
+     
+    for i in xrange(FLAGS.right_contexts):
+        complete_window_seq.append(input_window_2[FLAGS.left_contexts+i])
+    
+    complete_window_seq = np.vstack(complete_window_seq)
+    
+    plt.imshow(complete_window_seq.T, interpolation=None, aspect='auto', origin='lower')
+    
+    plt.figure(1)
+    
+    f, axarr = plt.subplots(task_length, sharex=True)
+    
+    expect_shape = input_window_1[0].shape
+    for i in range(len(input_window_1)):
+        if input_window_1[i].shape != expect_shape:
+            print('warning:',i,input_window_1[i].shape)
+    
+    expect_shape = input_window_1[1].shape
+    for i in range(len(input_window_1)):
+        if input_window_2[i].shape != expect_shape:
+            print('warning:',i,input_window_2[i].shape)
+    
+    
+    for i,ax in enumerate(axarr):
+        print(input_window_1[i])
+        print('input_window_1[i]:',input_window_1[i].shape)
+        print('input_window_2[i]:',input_window_2[i].shape)
+        combined_feats = np.vstack([input_window_1[i], input_window_2[i]])
+        print('combined_feats shape:',combined_feats.shape)
+        im=ax.imshow(combined_feats.T, interpolation=None, aspect='auto', origin='lower')
+        #ax.matshow(combined_feats.T)  
+        ax.axvline(x=len(input_window_1[i])-0.5, color='k', linestyle='--')
+        
+    #plt.colorbar(im,ax=axarr[-1])
+    plt.show()
+    
 
 if __name__ == "__main__":
     FLAGS._parse_flags()
     print("\nParameters:")
     print(get_FLAGS_params_as_str())
-    utt_ids, filelist = utils.loadIdFile(FLAGS.filelist, 3000000)
-    print(utt_ids, filelist)
+
     #print(list(zip(utt_ids, filelist)))
 
-    print('continuing training in 5 seconds...')
-    time.sleep(5)
+    print('continuing training in 10 seconds...')
+    #time.sleep(10)
 
-    if FLAGS.debug:
-        filelist = filelist[:10]
+    spk2utt, spk2len, num_speakers = None,None,None
 
-    file2id = {}
-
-    for utt_id, myfile in itertools.zip_longest(utt_ids,filelist):
-#    for myfile in [filelist[-1]]:   
-        print('Loading:',myfile)
-        signal, framerate = utils.getSignal(myfile)
-        if framerate != 16000:
-            print('Warning framerate != 16000:', framerate)
-       
-        if signal.dtype != 'float32':
-            print('dytpe is not float32', signal.dtype)
-            signal = signal.astype('float32')
-            #convert and clip to -1.0 - 1.0 range
-            signal /= 32768.0
-            signal = np.fmax(-1.0,signal)
-            signal = np.fmin(1.0,signal)
+    if FLAGS.end_to_end:
+        utt_ids, filelist = utils.loadIdFile(FLAGS.filelist, 3000000)
+        print(utt_ids, filelist)
         
-        training_data[myfile] = signal
+        if FLAGS.debug:
+            filelist = filelist[:10]
         
-        file2id[myfile] = utt_id
-        
-    if FLAGS.gen_feats:
-        gen_feat(filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize)
+        id2file = {}
+    
+        utt_id_list = []
+        i = 0
+        for utt_id, myfile in itertools.zip_longest(utt_ids,filelist):
+            if utt_id is None:
+                utt_id = "audio_%06i" % i
+            print('Loading:',utt_id,myfile)
+            utt_id_list.append(utt_id)
+            signal, framerate = utils.getSignal(myfile)
+            if framerate != 16000:
+                print('Warning framerate != 16000:', framerate)
+           
+            if signal.dtype != 'float32':
+                print('dytpe is not float32', signal.dtype)
+                signal = signal.astype('float32')
+                #convert and clip to -1.0 - 1.0 range
+                signal /= 32768.0
+                signal = np.fmax(-1.0,signal)
+                signal = np.fmin(1.0,signal)
+            
+            training_data[utt_id] = signal
+            
+            id2file[utt_id] = myfile
+            
+            i += 1
     else:
-        train(filelist)
+        #Using Kaldi scp
+        if FLAGS.filelist.endswith('.scp'):
+            features, utt_id_list = kaldi_io.readScp(FLAGS.filelist, limit = 1000 if FLAGS.debug else np.inf)
+        elif FLAGS.filelist.endswith('.ark'):
+            features, utt_id_list = kaldi_io.readArk(FLAGS.filelist, limit = 1000 if FLAGS.debug else np.inf)
+            
+        print(utt_id_list)
+          
+        min_required_sampling_length = FLAGS.window_length + FLAGS.window_neg_length * (FLAGS.left_contexts + FLAGS.right_contexts)
+        print('min_required_sampling_length is:', min_required_sampling_length)
+        
+        training_data = {key: value for (key, value) in zip(utt_id_list, features) if value.shape[0] > min_required_sampling_length}
+    
+    if FLAGS.spk2utt != '':
+        print('Loading speaker information from ', FLAGS.spk2utt)
+        spk2utt = utils.loadSpk2Utt(FLAGS.spk2utt)
+        #print('spk2utt:',spk2utt)
+        del_list = []
+        # Removing unavailable uttids. Either deleted because they are too short, or if debug = True and the size of the trainingset is reduced, most utt_ids are not available.
+        # This is important, because the sampler expects every utt_ids for every speaker to be in the training set.
+        for spk in spk2utt.keys():
+            #print(spk2utt[spk])
+            spk2utt[spk] = [elem for elem in spk2utt[spk] if elem in training_data]
+        
+            if len(spk2utt[spk]) == 0:
+                del_list.append(spk)
+        for spk in del_list:
+            del spk2utt[spk]
+       
+        spk2len = compute_spk2len(spk2utt)
+        
+        print('spk2len:',spk2len)
+        
+        num_speakers = len(spk2len.keys())
+        
+    if FLAGS.test_sampling:
+        test_sampling(utt_id_list, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers)
+    if FLAGS.gen_feats:
+        gen_feat(utt_id_list, filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize)
+    else:
+        train(utt_id_list, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers)
