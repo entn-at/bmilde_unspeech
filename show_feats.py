@@ -12,6 +12,8 @@ import argparse
 import kaldi_io
 import utils
 
+from sklearn.manifold import TSNE
+
 framerate = 100.0
 samplerate = 16000.0
 samples_per_frame = samplerate / framerate
@@ -52,6 +54,11 @@ def visualize_kaldi_bin_feats(feat_filename, max_frames, num_feat=0, phn_file=''
         for xc in xpositions:
             plt.axvline(x=xc, color='k', linestyle='--')
         plt.show()
+
+    print('Calculating TSNE:')
+    model = TSNE(n_components=2, random_state=0)
+
+    print('Now showing tsne plot:')
         
     
 if __name__ == '__main__':
