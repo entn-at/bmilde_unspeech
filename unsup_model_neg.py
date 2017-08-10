@@ -200,7 +200,7 @@ def vgg16(inputs):
     #print('vgg input fc2 shape:', net.get_shape())
     #net = slim.dropout(net, 0.5, scope='dropout7')
     #net = slim.fully_connected(net, 1000, activation_fn=None, scope='fc8')
-  return net
+    return net
 
 # highway impl from https://github.com/fomorians/highway-fcn/blob/master/main.py
 
