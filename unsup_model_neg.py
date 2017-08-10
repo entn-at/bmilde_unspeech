@@ -144,12 +144,13 @@ def lrelu(x, leak=0.2, name="lrelu"):
 
 #https://gist.github.com/awjuliani/fb10d1ea206fab25f946512d959e3894
 def DenseBlock2D(input_layer,filters, layer_num, num_connected, non_linearity=lrelu):
-    with tf.variable_scope("dense_unit"+str(layer_num)):
+    name = "dense_unit"+str(layer_num)
+    with tf.variable_scope(name):
         nodes = []
-        a = slim.conv2d(input_layer,filters,[3,3], activation_fn=non_linearity)
+        a = slim.conv2d(input_layer,filters,[3,3], activation_fn=non_linearity, scope=name+'0')
         nodes.append(a)
         for z in range(num_connected):
-            b = slim.conv2d(tf.concat(nodes,3),filters,[3,3], activation_fn=non_linearity)
+            b = slim.conv2d(tf.concat(nodes,3),filters,[3,3], activation_fn=non_linearity, scope=name+str(z+1))
             nodes.append(b)
         return b
 
@@ -496,7 +497,7 @@ class UnsupSeech(object):
                             
                             conv = DenseBlock2D(pooled, filters=FLAGS.dense_block_filters, layer_num=3, num_connected=FLAGS.dense_block_layers_connected)
                             #pooled = DenseTransition2D(conv, 40, 'transition2')
-                            pooled = DenseFinal2D(conv, 'dense_end')
+                            pooled = DenseFinal2D(conv, name='dense_end')
         
                             print('pool shape after dense blocks:', pooled.get_shape())
         
