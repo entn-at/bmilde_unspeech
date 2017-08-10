@@ -241,7 +241,8 @@ def get_random_audiosample(idlist, idlist_size, window_size, random_id=None, spk
             random_id = idlist[random_id_num]
     else:
         if spk_id is not None:
-            print(spk2utt[spk_id],spk2len[spk_id])
+            if debug:
+                print(spk2utt[spk_id],spk2len[spk_id])
             random_id_num = int(math.floor(np.random.random_sample() * float(spk2len[spk_id])))
             random_id = spk2utt[spk_id][random_id_num]  
         else:
