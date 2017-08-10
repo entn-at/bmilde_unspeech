@@ -392,8 +392,8 @@ class UnsupSeech(object):
             with tf.variable_scope("unsupmodel"):
                 # a list of embeddings to use for the binary classifier (the embeddings are combined)
                 self.outs = []
-                with tf.variable_scope("embedding-transform"):
-                    for i,input_window in enumerate([self.input_window_1, self.input_window_2]):
+                for i,input_window in enumerate([self.input_window_1, self.input_window_2]):
+                    with tf.variable_scope("embedding-transform" if FLAGS.tied_embeddings_transforms else "embedding-transform-" + str(i)):     
                         if FLAGS.tied_embeddings_transforms and i > 0: 
                             print("Reusing variables for embeddings computation.")
                             tf.get_variable_scope().reuse_variables()
