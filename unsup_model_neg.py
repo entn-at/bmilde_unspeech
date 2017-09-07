@@ -37,8 +37,11 @@ tf.flags.DEFINE_boolean("test_sampling", False, "Test the sampling algorithm")
 
 tf.flags.DEFINE_boolean("generate_kaldi_output_feats", False, "Whether to write out a feature file for Kaldi (containing all utterances), requires a trained model")
 tf.flags.DEFINE_string("output_kaldi_ark", "output_kaldi.ark" , "Output file for Kaldi ark file")
-tf.flags.DEFINE_boolean("generate_challenge_output_feats", False, "Whether to write out a feature file in the unsupervise vhallenge format (containing all utterances), requires a trained model")
-tf.flags.DEFINE_integer("hop_size", 200,"How many training steps to do per checkpoint.")
+tf.flags.DEFINE_boolean("generate_challenge_output_feats", False, "Whether to write out a feature file in the unsupervise challenge format (containing all utterances), requires a trained model")
+
+tf.flags.DEFINE_integer("hop_size", 1,"The hopsize over the input features while genearting output features.")
+tf.flags.DEFINE_boolean("kaldi_normalize_to_input_length", True, "Wether to normalize the genearted output feature length to the input length (by extending the input length accordingly before generating output features). Only makes send for hopsize=1 and non end-to-end models.")
+
 tf.flags.DEFINE_string("model_name", "feat1", "Model output name, currently only used for generate_challenge_output_feats")
 
 tf.flags.DEFINE_integer("sample_rate", 16000, "Sample rate of the audio files. Must have the same samplerate for all audio files.") # 100+ ms @ 16kHz
@@ -630,7 +633,18 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size):
                             input_signal = training_data[myfile]
                             
                             print('Generate KALDI bin features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size)
+                            
+                            input_length = input_signal.shape[0]
+                            if FLAGS.kaldi_normalize_to_input_length:
+                                if hop_size==1:
+                                    # Useful for feature combining, output length == input length after generating. Repeat the last input (frame) accordingly.
+                                    input_signal = np.array(input_signal)
+                                    input_signal = np.vstack(input_signal, [input_signal[-1]]*(input_signal.shape[0]-1))
+                                else:
+                                    print('Warning, disabled kaldi_normalize_to_input_length since your hop size is not 1:', hop_size)
+                                
                             feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size))
+                            print('Input length is:', input_length, input_signal.shape , 'output length is', feat.shape[0], feat.shape)
                             print('Done, writing to ' + outputfile)
                             pointers = kaldi_io.writeArk(outputfile + '.ark', [feat], [file2id[myfile]], append = not first_file)
                             kaldi_io.writeScp(outputfile + '.scp', [file2id[myfile]], pointers, append=not first_file)
@@ -858,6 +872,8 @@ if __name__ == "__main__":
         print('min_required_sampling_length is:', min_required_sampling_length)
         
         training_data = {key: value for (key, value) in zip(utt_id_list, features) if value.shape[0] > min_required_sampling_length}
+        
+        print("Before filtering for minimum required length:", len(utt_id_list), "After filtering:", len(training_data.keys))
     
     if FLAGS.spk2utt != '':
         print('Loading speaker information from ', FLAGS.spk2utt)
