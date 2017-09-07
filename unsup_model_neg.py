@@ -187,7 +187,7 @@ def vgg16(inputs):
     print('vgg input conv3 shape:', net.get_shape())
     net = slim.max_pool2d(net, [2, 2], scope='pool3')
     print('vgg input pool3 shape:', net.get_shape())
-    net = slim.repeat(net, 3, slim.conv2d, 64, [3, 3], scope='conv4')
+    net = slim.repeat(net, 3, slim.conv2d, 128, [3, 3], scope='conv4')
     print('vgg input conv4 shape:', net.get_shape())
     net = slim.max_pool2d(net, [2, 2], scope='pool4')
     print('vgg input pool4 shape:', net.get_shape())
