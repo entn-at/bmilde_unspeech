@@ -317,7 +317,7 @@ def get_batch_k_samples(idlist, window_length, window_neg_length, spk2utt=None, 
 class UnsupSeech(object):
     """
     Unsupervised learning with RAW speech signals. This model learns a speech representation by u
-    using a negative sampling objective, where true contexts must be discrimnated from samples ones
+    using a negative sampling objective, where true contexts must be discrimnated from sampled ones
     """
     
     def create_training_graphs(self, create_new_train_dir=True, clip_norm=True, max_grad_norm=5.0):
