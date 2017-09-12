@@ -40,6 +40,8 @@ tf.flags.DEFINE_string("output_kaldi_ark", "output_kaldi.ark" , "Output file for
 tf.flags.DEFINE_boolean("generate_challenge_output_feats", False, "Whether to write out a feature file in the unsupervise challenge format (containing all utterances), requires a trained model")
 
 tf.flags.DEFINE_integer("hop_size", 1,"The hopsize over the input features while genearting output features.")
+tf.flags.DEFINE_string("genfeat_hopsize", 1, "Hop size (in samples if end-to-end) for the feature generation.")
+
 tf.flags.DEFINE_boolean("kaldi_normalize_to_input_length", True, "Wether to normalize the genearted output feature length to the input length (by extending the input length accordingly before generating output features). Only makes send for hopsize=1 and non end-to-end models.")
 
 tf.flags.DEFINE_string("model_name", "feat1", "Model output name, currently only used for generate_challenge_output_feats")
@@ -100,7 +102,6 @@ tf.flags.DEFINE_boolean("log_tensorboard", True, "Log training process if this i
 tf.flags.DEFINE_string("train_dir", "/srv/data/milde/unspeech_models/neg/", "Training dir to resume training from. If empty, a new one will be created.")
 tf.flags.DEFINE_string("output_feat_file", "/srv/data/milde/unspeech_models/feats/", "Necessary suffixes will get appended (depending on output format).")
 tf.flags.DEFINE_string("output_feat_format", "kaldi_bin", "Feat format")
-tf.flags.DEFINE_string("genfeat_hopsize", 160, "Hop size (in samples if end-to-end) for the feature generation.")
 
 FLAGS = tf.flags.FLAGS
 
@@ -190,7 +191,7 @@ def vgg16(inputs):
     print('vgg input conv3 shape:', net.get_shape())
     net = slim.max_pool2d(net, [2, 2], scope='pool3')
     print('vgg input pool3 shape:', net.get_shape())
-    net = slim.repeat(net, 3, slim.conv2d, 128, [3, 3], scope='conv4')
+    net = slim.repeat(net, 3, slim.conv2d, 64, [3, 3], scope='conv4')
     print('vgg input conv4 shape:', net.get_shape())
     net = slim.max_pool2d(net, [2, 2], scope='pool4')
     print('vgg input pool4 shape:', net.get_shape())
@@ -589,7 +590,7 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size):
     with tf.device('/gpu:1'):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
             model = UnsupSeech(window_length=FLAGS.window_length, window_neg_length=FLAGS.window_neg_length, filter_sizes=filter_sizes, 
-                    num_filters=FLAGS.num_filters, fc_size=FLAGS.fc_size, emeddings_size=FLAGS.emeddings_size, dropout_keep_prob=FLAGS.dropout_keep_prob, k = FLAGS.negative_samples, 
+                    num_filters=FLAGS.num_filters, fc_size=FLAGS.fc_size, embeddings_size=FLAGS.embedding_size, dropout_keep_prob=FLAGS.dropout_keep_prob, k = FLAGS.negative_samples, 
                     left_contexts=FLAGS.left_contexts, right_contexts=FLAGS.right_contexts, train_files = utt_id_list,  batch_size=FLAGS.batch_size, is_training=False, create_new_train_dir=False)
             
             if FLAGS.train_dir != "":
@@ -609,7 +610,7 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size):
                     utils.ensure_dir(outputfile)
                     
                     # model is now loaded with the trained parameters
-                    for myfile in filelist:
+                    for myfile in utt_id_list:
 
                         if feats_format == "unsup_challenge2017":
                             input_signal = training_data[myfile]
@@ -632,22 +633,32 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size):
                         if feats_format == "kaldi_bin":           
                             input_signal = training_data[myfile]
                             
-                            print('Generate KALDI bin features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size)
-                            
                             input_length = input_signal.shape[0]
+                            print('Generate KALDI bin features for', myfile , 'window size:', FLAGS.window_length , 'hop size:', hop_size, 'len input signal:', input_length)
+                            
                             if FLAGS.kaldi_normalize_to_input_length:
                                 if hop_size==1:
                                     # Useful for feature combining, output length == input length after generating. Repeat the last input (frame) accordingly.
                                     input_signal = np.array(input_signal)
-                                    input_signal = np.vstack(input_signal, [input_signal[-1]]*(input_signal.shape[0]-1))
+                                    input_signal = np.vstack((input_signal, [input_signal[-1]]*(FLAGS.window_length-1)))
                                 else:
                                     print('Warning, disabled kaldi_normalize_to_input_length since your hop size is not 1:', hop_size)
-                                
-                            feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size))
-                            print('Input length is:', input_length, input_signal.shape , 'output length is', feat.shape[0], feat.shape)
+                            
+                            print('normalized input shape:', input_signal.shape)
+
+                            if len(input_signal.shape)==1:
+                                feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size))
+                            elif len(input_signal.shape)==2:
+                                rolling_shape = (FLAGS.window_length, input_signal.shape[-1])
+                                print('shape:',rolling_shape)
+                                feat = model.gen_feat_batch(sess, utils.rolling_window_better(input_signal, rolling_shape).reshape(-1,rolling_shape[0],rolling_shape[1]))
+                            else:
+                                print("Can't apply rolling window, shape not supported:", input_signal.shape)
+
+                            print('Input length is:', input_length, input_signal.shape, 'output length is', feat.shape[0], feat.shape)
                             print('Done, writing to ' + outputfile)
-                            pointers = kaldi_io.writeArk(outputfile + '.ark', [feat], [file2id[myfile]], append = not first_file)
-                            kaldi_io.writeScp(outputfile + '.scp', [file2id[myfile]], pointers, append=not first_file)
+                            pointers = kaldi_io.writeArk(outputfile + '.ark', [feat], [myfile], append = not first_file)
+                            kaldi_io.writeScp(outputfile + '.scp', [myfile], pointers, append=not first_file)
                             first_file = False
 
                 else:
@@ -869,13 +880,17 @@ if __name__ == "__main__":
             
         if utt_id_list is not None:
             print(utt_id_list)
-              
-            min_required_sampling_length = FLAGS.window_length + FLAGS.window_neg_length * (FLAGS.left_contexts + FLAGS.right_contexts)
-            print('min_required_sampling_length is:', min_required_sampling_length)
             
-            training_data = {key: value for (key, value) in zip(utt_id_list, features) if value.shape[0] > min_required_sampling_length}
-            
-            print("Before filtering for minimum required length:", len(utt_id_list), "After filtering:", len(training_data.keys()))
+            if FLAGS.gen_feats:
+                training_data = {key: value for (key, value) in zip(utt_id_list, features)} 
+            else:
+                #make sure utterances are long enough if we are training
+                min_required_sampling_length = FLAGS.window_length + FLAGS.window_neg_length * (FLAGS.left_contexts + FLAGS.right_contexts)
+                print('min_required_sampling_length is:', min_required_sampling_length)
+                
+                training_data = {key: value for (key, value) in zip(utt_id_list, features) if value.shape[0] > min_required_sampling_length}
+                
+                print("Before filtering for minimum required length:", len(utt_id_list), "After filtering:", len(training_data.keys()))
     
     if FLAGS.spk2utt != '':
         print('Loading speaker information from ', FLAGS.spk2utt)
@@ -902,6 +917,6 @@ if __name__ == "__main__":
     if FLAGS.test_sampling:
         test_sampling(utt_id_list, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers)
     if FLAGS.gen_feats:
-        gen_feat(utt_id_list, filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize)
+        gen_feat(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize)
     else:
         train(utt_id_list, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers)
