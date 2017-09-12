@@ -860,20 +860,22 @@ if __name__ == "__main__":
             
             i += 1
     else:
+        features, utt_id_list = [],None
         #Using Kaldi scp
         if FLAGS.filelist.endswith('.scp'):
             features, utt_id_list = kaldi_io.readScp(FLAGS.filelist, limit = 1000 if FLAGS.debug else np.inf)
         elif FLAGS.filelist.endswith('.ark'):
             features, utt_id_list = kaldi_io.readArk(FLAGS.filelist, limit = 1000 if FLAGS.debug else np.inf)
             
-        print(utt_id_list)
-          
-        min_required_sampling_length = FLAGS.window_length + FLAGS.window_neg_length * (FLAGS.left_contexts + FLAGS.right_contexts)
-        print('min_required_sampling_length is:', min_required_sampling_length)
-        
-        training_data = {key: value for (key, value) in zip(utt_id_list, features) if value.shape[0] > min_required_sampling_length}
-        
-        print("Before filtering for minimum required length:", len(utt_id_list), "After filtering:", len(training_data.keys))
+        if utt_id_list is not None:
+            print(utt_id_list)
+              
+            min_required_sampling_length = FLAGS.window_length + FLAGS.window_neg_length * (FLAGS.left_contexts + FLAGS.right_contexts)
+            print('min_required_sampling_length is:', min_required_sampling_length)
+            
+            training_data = {key: value for (key, value) in zip(utt_id_list, features) if value.shape[0] > min_required_sampling_length}
+            
+            print("Before filtering for minimum required length:", len(utt_id_list), "After filtering:", len(training_data.keys()))
     
     if FLAGS.spk2utt != '':
         print('Loading speaker information from ', FLAGS.spk2utt)
