@@ -81,11 +81,12 @@ tf.flags.DEFINE_integer("negative_samples", 4, "How many negative samples to gen
 tf.flags.DEFINE_integer("batch_size", 32, "Batch Size (default: 64)")
 tf.flags.DEFINE_boolean("batch_normalization", False, "Whether to use batch normalization.")
 
-tf.flags.DEFINE_float("dropout_keep_prob", 1.0 , "Dropout keep probability")
+tf.flags.DEFINE_float("dropout_keep_prob", 0.9 , "Dropout keep probability")
+tf.flags.DEFINE_float("l2_reg", 0.0005 , "L2 regularization")
 
-tf.flags.DEFINE_integer("steps_per_checkpoint", 400,
+tf.flags.DEFINE_integer("steps_per_checkpoint", 1000,
                                 "How many training steps to do per checkpoint.")
-tf.flags.DEFINE_integer("steps_per_summary", 200,
+tf.flags.DEFINE_integer("steps_per_summary", 500,
                                 "How many training steps to do per checkpoint.")
 
 tf.flags.DEFINE_integer("checkpoints_per_save", 1,
@@ -95,7 +96,7 @@ tf.flags.DEFINE_boolean("allow_soft_placement", True, "Allow device soft device 
 tf.flags.DEFINE_boolean("log_device_placement", False, "Log placement of ops on devices")
 
 tf.flags.DEFINE_float("learn_rate", 1e-4, "Learn rate for the optimizer")
-tf.flags.DEFINE_float("gradient_clipping", 5.0, "Clip the gradient at larger +/- this value.")
+tf.flags.DEFINE_float("gradient_clipping", 10.0, "Clip the gradient at larger +/- this value.")
 
 tf.flags.DEFINE_boolean("log_tensorboard", True, "Log training process if this is set to True.")
 
@@ -172,6 +173,45 @@ def DenseFinal2D(l, name, pool_size=7):
     return l
 
 #from https://github.com/tensorflow/tensorflow/tree/r1.2/tensorflow/contrib/slim
+def vgg16_big(inputs):
+#  with slim.arg_scope([slim.conv2d, slim.fully_connected],
+#                      activation_fn=lrelu,
+#                      weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
+#                      weights_regularizer=slim.l2_regularizer(0.0005),
+#                      biases_initializer = tf.constant_initializer(0.01)):
+    print('vgg input shape:',inputs.get_shape())
+    net = slim.repeat(inputs, 2, slim.conv2d, 32, [3, 3], scope='conv1')
+    print('vgg input conv1 shape:', net.get_shape())
+    net = slim.max_pool2d(net, [2, 2], scope='pool1')
+    print('vgg input pool1 shape:', net.get_shape())
+    net = slim.repeat(net, 2, slim.conv2d, 64, [3, 3], scope='conv2')
+    print('vgg input conv2 shape:', net.get_shape())
+    net = slim.max_pool2d(net, [2, 2], scope='pool2')
+    print('vgg input pool2 shape:', net.get_shape())
+    net = slim.repeat(net, 3, slim.conv2d, 128, [3, 3], scope='conv3')
+    print('vgg input conv3 shape:', net.get_shape())
+    net = slim.max_pool2d(net, [2, 2], scope='pool3')
+    print('vgg input pool3 shape:', net.get_shape())
+    net = slim.repeat(net, 3, slim.conv2d, 256, [3, 3], scope='conv4')
+    print('vgg input conv4 shape:', net.get_shape())
+    net = slim.max_pool2d(net, [2, 2], scope='pool4')
+    print('vgg input pool4 shape:', net.get_shape())
+    net = slim.repeat(net, 3, slim.conv2d, 512, [3, 3], scope='conv5')
+    print('vgg input conv5 shape:', net.get_shape())
+    net = slim.max_pool2d(net, [2, 2], scope='pool5')
+    print('vgg input pool5 shape:', net.get_shape())
+    #net = slim.fully_connected(net, 512, scope='fc6')
+    #print('vgg input fc1 shape:', net.get_shape())
+    #net = slim.dropout(net, 0.5, scope='dropout6')
+    #net = slim.fully_connected(net, 256, scope='fc7')
+    #print('vgg input fc2 shape:', net.get_shape())
+    #net = slim.dropout(net, 0.5, scope='dropout7')
+    #net = slim.fully_connected(net, 1000, activation_fn=None, scope='fc8')
+    return net
+
+
+
+#from https://github.com/tensorflow/tensorflow/tree/r1.2/tensorflow/contrib/slim
 def vgg16(inputs):
 #  with slim.arg_scope([slim.conv2d, slim.fully_connected],
 #                      activation_fn=lrelu,
@@ -191,7 +231,7 @@ def vgg16(inputs):
     print('vgg input conv3 shape:', net.get_shape())
     net = slim.max_pool2d(net, [2, 2], scope='pool3')
     print('vgg input pool3 shape:', net.get_shape())
-    net = slim.repeat(net, 3, slim.conv2d, 64, [3, 3], scope='conv4')
+    net = slim.repeat(net, 3, slim.conv2d, 128, [3, 3], scope='conv4')
     print('vgg input conv4 shape:', net.get_shape())
     net = slim.max_pool2d(net, [2, 2], scope='pool4')
     print('vgg input pool4 shape:', net.get_shape())
@@ -342,7 +382,7 @@ class UnsupSeech(object):
 
         if create_new_train_dir:
             timestamp = str(int(time.time()))
-            self.out_dir = os.path.abspath(os.path.join(FLAGS.train_dir, "runs", timestamp)) + '/' + 'tf10'
+            self.out_dir = os.path.abspath(os.path.join(FLAGS.train_dir, "runs", timestamp + get_model_flags_param_short())) + '/' + 'tf10'
             print("Writing to {}\n".format(self.out_dir))
             # Checkpoint directory. Tensorflow assumes this directory already exists so we need to create it
             checkpoint_dir = os.path.abspath(os.path.join(self.out_dir, "checkpoints"))
@@ -389,7 +429,7 @@ class UnsupSeech(object):
         
         with slim.arg_scope([slim.conv2d, slim.fully_connected],  weights_initializer=tf.truncated_normal_initializer(stddev=0.01),
                                             #weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
-                                            weights_regularizer=slim.l2_regularizer(0.0005),
+                                            weights_regularizer=slim.l2_regularizer(FLAGS.l2_reg),
                                             activation_fn=lrelu,
                                             biases_initializer = tf.constant_initializer(0.01),
                                             normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
@@ -509,7 +549,11 @@ class UnsupSeech(object):
                         if FLAGS.embedding_transformation == "Vgg16":
                             pooled = vgg16(pooled)
                             print('pool shape after vgg16 block:', pooled.get_shape())
-        
+       
+                        if FLAGS.embedding_transformation == "Vgg16big":
+                            pooled = vgg16_big(pooled)
+                            print('pool shape after vgg16 block:', pooled.get_shape())
+
                         if needs_flattening:
                             flattened_size = int(pooled.get_shape()[1]*pooled.get_shape()[2]*pooled.get_shape()[3])
                             # Reshape conv2 output to fit fully connected layer input
@@ -537,12 +581,16 @@ class UnsupSeech(object):
         
                         print('flattened_pooled shape:',self.flattened_pooled.get_shape())
         
-                        self.fc1 = slim.fully_connected(self.flattened_pooled, self.fc_size)#weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
-                        print('fc1 shape:',self.fc1.get_shape())
-                        self.outs.append(self.fc1)
+                        self.fc1 = slim.dropout(slim.fully_connected(self.flattened_pooled, self.fc_size), keep_prob=FLAGS.dropout_keep_prob , is_training=is_training) #weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
+                        print('fc1 shape:',self.fc1.get_shape(), 'with dropout:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
+                        self.fc2 = slim.dropout(slim.fully_connected(self.fc1, self.embeddings_size), keep_prob=FLAGS.dropout_keep_prob, is_training=is_training)
+                        print('fc2 shape:',self.fc2.get_shape(), 'with dropout:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
+
+                        self.outs.append(self.fc2)
                 
                 if FLAGS.use_dot_combine:
                     # computes the dot product between self.outs[0] and self.outs[1]
+                    print('out0 (embedding) shape:', self.outs[0].shape) 
                     self.logits = tf.reduce_sum( tf.multiply(self.outs[0], self.outs[1]), 1, keep_dims=True)
                 else:
                     # this is an alternative formulation that substracts self.outs[0] and self.outs[1] and projects down to 1
@@ -580,8 +628,9 @@ class UnsupSeech(object):
 
 def get_model_flags_param_short():
     ''' get model params as string, e.g. to use it in an output filepath '''
-    return ('e2e' if FLAGS.end_to_end else '') + '_trans' + FLAGS.embedding_transformation + '_win' + str(FLAGS.window_length) + '_lcontexts' + str(FLAGS.left_contexts) + '_rcontexts' + str(FLAGS.right_contexts) + \
+    return ('e2e' if FLAGS.end_to_end else 'feats') + '_trans' + FLAGS.embedding_transformation + '_win' + str(FLAGS.window_length) + '_lcontexts' + str(FLAGS.left_contexts) + '_rcontexts' + str(FLAGS.right_contexts) + \
                                     '_flts' + str(FLAGS.num_filters) + '_embsize' + str(FLAGS.embedding_size) + ('_dnn' + str(FLAGS.num_dnn_layers) if FLAGS.embedding_transformation=='BaselineDnn' else '') + \
+                                    '_dropout_keep' + str(FLAGS.dropout_keep_prob) + ('_batchnorm' if FLAGS.batch_normalization else '') + '_l2_reg' + str(FLAGS.l2_reg) + \
                                     ('_highwaydnn' + str(FLAGS.num_highway_layers) if FLAGS.embedding_transformation=='HighwayDnn' else '') + \
                                     ('_dot_combine' if FLAGS.use_dot_combine else '')
     
@@ -757,7 +806,7 @@ def train(utt_id_list, spk2utt=None, spk2len=None, num_speakers=None):
                         if len(previous_losses) > 0:
                             min_loss = min(previous_losses)
                         if mean_train_loss < min_loss:
-                            print(('Train loss: %.6f' % mean_train_loss) + (' is smaller than previous best loss: %.6f' % min_loss) )
+                            print(('Mean train loss: %.6f' % mean_train_loss) + (' is smaller than previous best loss: %.6f' % min_loss) )
                             print('Saving the best model so far to ', model.out_dir, '...')
                             model.saver.save(sess, model.out_dir, global_step=model.global_step)
                             previous_losses.append(mean_train_loss)
