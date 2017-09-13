@@ -42,7 +42,7 @@ def visualize_kaldi_bin_feats(feat_filename, max_frames, num_feat=0, phn_file=''
     
     print('showing features for utt_id:', utt_ids[num_feat])
 
-
+    print(feats[0].shape)
 
     if phn_file == '':
         plt.matshow(feats[num_feat][:max_frames].T)  
@@ -57,13 +57,18 @@ def visualize_kaldi_bin_feats(feat_filename, max_frames, num_feat=0, phn_file=''
 
     print('Calculating TSNE:')
     model = TSNE(n_components=2, random_state=0)
-
+    
+    tsne_data = model.fit_transform(feats[num_feat])
+    plt.plot(tsne_data[:,0], tsne_data[:,1], '--')
+    
     print('Now showing tsne plot:')
+    plt.show()
+    
         
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Feature file viewer, for different formats. (raw, kaldi text, unsupervised challenge 2017 format).')
-    parser.add_argument('-i', '--input_featfile', dest='featfile', help='The feature file to visualize.', type=str, default = '')
+    parser.add_argument('-i', '--input_featfile', dest='featfile', help='The feature file to visualize.', type=str, default = '/Users/milde/_transVgg16_win50_lcontexts2_rcontexts2_flts40_embsize100_dot_combine/train/feats.ark')
     parser.add_argument('-f', '--format', dest='format', help='Format of the feature file (raw,kaldi_ark)', type=str, default = 'kaldi_ark')
     parser.add_argument('-m', '--max_frames', dest='max_frames', help='Maximum frames', type=int, default = 100)
     parser.add_argument('-p', '--phn_file', dest='phn_file', help='Phoneme annotation file', type=str, default = '')
