@@ -630,6 +630,7 @@ def get_model_flags_param_short():
     ''' get model params as string, e.g. to use it in an output filepath '''
     return ('e2e' if FLAGS.end_to_end else 'feats') + '_trans' + FLAGS.embedding_transformation + '_win' + str(FLAGS.window_length) + '_lcontexts' + str(FLAGS.left_contexts) + '_rcontexts' + str(FLAGS.right_contexts) + \
                                     '_flts' + str(FLAGS.num_filters) + '_embsize' + str(FLAGS.embedding_size) + ('_dnn' + str(FLAGS.num_dnn_layers) if FLAGS.embedding_transformation=='BaselineDnn' else '') + \
+                                    '_fc_size' + str(FLAGS.fc_size) + \
                                     '_dropout_keep' + str(FLAGS.dropout_keep_prob) + ('_batchnorm' if FLAGS.batch_normalization else '') + '_l2_reg' + str(FLAGS.l2_reg) + \
                                     ('_highwaydnn' + str(FLAGS.num_highway_layers) if FLAGS.embedding_transformation=='HighwayDnn' else '') + \
                                     ('_dot_combine' if FLAGS.use_dot_combine else '')
