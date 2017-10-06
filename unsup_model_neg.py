@@ -75,6 +75,7 @@ tf.flags.DEFINE_integer("num_dnn_layers", 3, "How many layers for the baseline d
 tf.flags.DEFINE_boolean("tied_embeddings_transforms", False, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
 tf.flags.DEFINE_boolean("use_weighted_loss_func", False, "Whether the class imbalance of having k negative samples should be countered by weighting the positive examples k-times more.")
 tf.flags.DEFINE_boolean("use_dot_combine", True, "Define the loss function over the logits of the dot product of window and context window.")
+tf.flags.DEFINE_boolean("unit_normalize", True, "Before computing the dot product, normalize network output to unit length. Effectively computes the cosine distance.")
 
 tf.flags.DEFINE_integer("negative_samples", 4, "How many negative samples to generate.")
 
@@ -587,6 +588,10 @@ class UnsupSeech(object):
                         print('fc2 shape:',self.fc2.get_shape(), 'with dropout:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
 
                         self.outs.append(self.fc2)
+                
+                if FLAGS.unit_normalize:
+                    for x in xrange(len(self.outs)):
+                        self.outs[x] = tf.divide(self.outs[x], tf.norm(self.outs[x] , axis=1))
                 
                 if FLAGS.use_dot_combine:
                     # computes the dot product between self.outs[0] and self.outs[1]
