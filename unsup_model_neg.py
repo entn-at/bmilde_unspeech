@@ -591,7 +591,7 @@ class UnsupSeech(object):
                 
                 if FLAGS.unit_normalize:
                     for x in xrange(len(self.outs)):
-                        self.outs[x] = tf.divide(self.outs[x], tf.norm(self.outs[x] , axis=1))
+                        self.outs[x] = self.outs[x] / tf.norm(self.outs[x] , axis=1)
                 
                 if FLAGS.use_dot_combine:
                     # computes the dot product between self.outs[0] and self.outs[1]
