@@ -75,7 +75,8 @@ tf.flags.DEFINE_integer("num_dnn_layers", 3, "How many layers for the baseline d
 tf.flags.DEFINE_boolean("tied_embeddings_transforms", False, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
 tf.flags.DEFINE_boolean("use_weighted_loss_func", False, "Whether the class imbalance of having k negative samples should be countered by weighting the positive examples k-times more.")
 tf.flags.DEFINE_boolean("use_dot_combine", True, "Define the loss function over the logits of the dot product of window and context window.")
-tf.flags.DEFINE_boolean("unit_normalize", True, "Before computing the dot product, normalize network output to unit length. Effectively computes the cosine distance.")
+tf.flags.DEFINE_boolean("unit_normalize", False, "Before computing the dot product, normalize network output to unit length. Effectively computes the cosine distance. Doesnt really help the optimization.")
+tf.flags.DEFINE_boolean("unit_normalize_var", True, "Use a trainable var to scale the output of the network.")
 
 tf.flags.DEFINE_integer("negative_samples", 4, "How many negative samples to generate.")
 
@@ -593,6 +594,11 @@ class UnsupSeech(object):
                     for x in xrange(len(self.outs)):
                         self.outs[x] = tf.multiply(self.outs[x], tf.expand_dims(tf.reciprocal(tf.norm(self.outs[x] , axis=1)),1) )
                 
+                if FLAGS.unit_normalize_var:
+                    for x in xrange(len(self.outs)):
+                        out_scaler = tf.Variable(0.1, name="out_scaler"+str(x))
+                        self.outs[x] = tf.multiply(self.outs[x], out_scaler )
+                        
                 if FLAGS.use_dot_combine:
                     # computes the dot product between self.outs[0] and self.outs[1]
                     print('out0 (embedding) shape:', self.outs[0].shape) 
