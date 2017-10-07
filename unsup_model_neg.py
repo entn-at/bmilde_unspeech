@@ -595,7 +595,7 @@ class UnsupSeech(object):
                         self.outs[x] = tf.multiply(self.outs[x], tf.expand_dims(tf.reciprocal(tf.norm(self.outs[x] , axis=1)),1) )
                 
                 if FLAGS.unit_normalize_var:
-                    out_scaler = tf.Variable(1.0, name="out_scaler"+str(x))
+                    out_scaler = tf.Variable(1.0, name="out_scaler")
                     for x in xrange(len(self.outs)):
                         self.outs[x] = tf.multiply(self.outs[x], out_scaler )
                         
