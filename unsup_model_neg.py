@@ -82,7 +82,7 @@ tf.flags.DEFINE_integer("negative_samples", 4, "How many negative samples to gen
 
 tf.flags.DEFINE_integer("batch_size", 32, "Batch Size (default: 64)")
 tf.flags.DEFINE_boolean("batch_normalization", False, "Whether to use batch normalization.")
-tf.flags.DEFINE_float("batch_normalization_decay", 0.95, "Decay for batch normalization. Make this value smaller (e.g. 0.95), if you want the bn averages to compute/warm up faster. Closer to 1.0 = averages are more stable throughout training. Default 0.99.")
+tf.flags.DEFINE_float("batch_normalization_decay", 0.999, "Decay for batch normalization. Make this value smaller (e.g. 0.95), if you want the bn averages to compute/warm up faster. Closer to 1.0 = averages are more stable throughout training. Default 0.99.")
 
 tf.flags.DEFINE_float("dropout_keep_prob", 0.9 , "Dropout keep probability")
 tf.flags.DEFINE_float("l2_reg", 0.0005 , "L2 regularization")
