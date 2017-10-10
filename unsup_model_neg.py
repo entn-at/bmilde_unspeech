@@ -76,7 +76,7 @@ tf.flags.DEFINE_boolean("tied_embeddings_transforms", False, "Whether the transf
 tf.flags.DEFINE_boolean("use_weighted_loss_func", False, "Whether the class imbalance of having k negative samples should be countered by weighting the positive examples k-times more.")
 tf.flags.DEFINE_boolean("use_dot_combine", True, "Define the loss function over the logits of the dot product of window and context window.")
 tf.flags.DEFINE_boolean("unit_normalize", False, "Before computing the dot product, normalize network output to unit length. Effectively computes the cosine distance. Doesnt really help the optimization.")
-tf.flags.DEFINE_boolean("unit_normalize_var", True, "Use a trainable var to scale the output of the network.")
+tf.flags.DEFINE_boolean("unit_normalize_var", False, "Use a trainable var to scale the output of the network.")
 
 tf.flags.DEFINE_integer("negative_samples", 4, "How many negative samples to generate.")
 
@@ -640,9 +640,9 @@ class UnsupSeech(object):
 def get_model_flags_param_short():
     ''' get model params as string, e.g. to use it in an output filepath '''
     return ('e2e' if FLAGS.end_to_end else 'feats') + '_trans' + FLAGS.embedding_transformation + '_win' + str(FLAGS.window_length) + \
-                                    '_neg_samples' + str(negative_samples) + '_lcontexts' + str(FLAGS.left_contexts) + '_rcontexts' + str(FLAGS.right_contexts) + \
+                                    '_neg_samples' + str(FLAGS.negative_samples) + '_lcontexts' + str(FLAGS.left_contexts) + '_rcontexts' + str(FLAGS.right_contexts) + \
                                     '_flts' + str(FLAGS.num_filters) + '_embsize' + str(FLAGS.embedding_size) + ('_dnn' + str(FLAGS.num_dnn_layers) if FLAGS.embedding_transformation=='BaselineDnn' else '') + \
-                                    '_fc_size' + str(FLAGS.fc_size) + \
+                                    '_fc_size' + str(FLAGS.fc_size) + ('_unit_norm_var' if FLAGS.unit_normalize_var else '') + \
                                     '_dropout_keep' + str(FLAGS.dropout_keep_prob) + ('_batchnorm' if FLAGS.batch_normalization else '') + '_l2_reg' + str(FLAGS.l2_reg) + \
                                     ('_highwaydnn' + str(FLAGS.num_highway_layers) if FLAGS.embedding_transformation=='HighwayDnn' else '') + \
                                     ('_dot_combine' if FLAGS.use_dot_combine else '')
