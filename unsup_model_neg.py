@@ -82,6 +82,7 @@ tf.flags.DEFINE_integer("negative_samples", 4, "How many negative samples to gen
 
 tf.flags.DEFINE_integer("batch_size", 32, "Batch Size (default: 64)")
 tf.flags.DEFINE_boolean("batch_normalization", False, "Whether to use batch normalization.")
+tf.flags.DEFINE_float("batch_normalization_decay", 0.95, "Decay for batch normalization. Make this value smaller (e.g. 0.95), if you want the bn averages to compute/warm up faster. Closer to 1.0 = averages are more stable throughout training. Default 0.99.")
 
 tf.flags.DEFINE_float("dropout_keep_prob", 0.9 , "Dropout keep probability")
 tf.flags.DEFINE_float("l2_reg", 0.0005 , "L2 regularization")
@@ -429,13 +430,17 @@ class UnsupSeech(object):
         
         self.first_call_to_get_batch = True
         
+        if FLAGS.batch_normalization:
+            print('batch_normalization is activated.')
+            print('is_training:', is_training)
+        
         with slim.arg_scope([slim.conv2d, slim.fully_connected],  weights_initializer=tf.truncated_normal_initializer(stddev=0.01),
                                             #weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
                                             weights_regularizer=slim.l2_regularizer(FLAGS.l2_reg),
                                             activation_fn=lrelu,
                                             biases_initializer = tf.constant_initializer(0.01),
                                             normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
-                                            normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
+                                            normalizer_params={'is_training': is_training, 'decay': FLAGS.batch_normalization_decay} if FLAGS.batch_normalization else None):
             with tf.variable_scope("unsupmodel"):
                 # a list of embeddings to use for the binary classifier (the embeddings are combined)
                 self.outs = []
@@ -643,7 +648,7 @@ def get_model_flags_param_short():
                                     '_neg_samples' + str(FLAGS.negative_samples) + '_lcontexts' + str(FLAGS.left_contexts) + '_rcontexts' + str(FLAGS.right_contexts) + \
                                     '_flts' + str(FLAGS.num_filters) + '_embsize' + str(FLAGS.embedding_size) + ('_dnn' + str(FLAGS.num_dnn_layers) if FLAGS.embedding_transformation=='BaselineDnn' else '') + \
                                     '_fc_size' + str(FLAGS.fc_size) + ('_unit_norm_var' if FLAGS.unit_normalize_var else '') + \
-                                    '_dropout_keep' + str(FLAGS.dropout_keep_prob) + ('_batchnorm' if FLAGS.batch_normalization else '') + '_l2_reg' + str(FLAGS.l2_reg) + \
+                                    '_dropout_keep' + str(FLAGS.dropout_keep_prob) + ('_batchnorm_bndecay' + str(FLAGS.batch_normalization_decay) if FLAGS.batch_normalization else '') + '_l2_reg' + str(FLAGS.l2_reg) + \
                                     ('_highwaydnn' + str(FLAGS.num_highway_layers) if FLAGS.embedding_transformation=='HighwayDnn' else '') + \
                                     ('_dot_combine' if FLAGS.use_dot_combine else '')
     
