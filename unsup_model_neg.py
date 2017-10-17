@@ -317,7 +317,10 @@ def get_batch_k_samples(idlist, window_length, window_neg_length, spk2utt=None, 
     
     idlist_size = len(idlist)
     spk_id=None
-    spk2utt_keys = list(spk2utt.keys())
+    
+    spk2utt_keys = None
+    if spk2utt is not None:
+        spk2utt_keys = list(spk2utt.keys())
     
     for i in xrange(FLAGS.batch_size*(k+1)):
         if i%(k+1)==0:
