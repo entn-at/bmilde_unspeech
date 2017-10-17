@@ -958,7 +958,11 @@ if __name__ == "__main__":
                 min_required_sampling_length = FLAGS.window_length + FLAGS.window_neg_length * (FLAGS.left_contexts + FLAGS.right_contexts)
                 print('min_required_sampling_length is:', min_required_sampling_length)
                 
+                #trim training data to minimum required sampling length
                 training_data = {key: value for (key, value) in zip(utt_id_list, features) if value.shape[0] > min_required_sampling_length}
+                
+                #also trim utt id list
+                utt_id_list = [myid for myid in utt_id_list if myid in training_data]
                 
                 print("Before filtering for minimum required length:", len(utt_id_list), "After filtering:", len(training_data.keys()))
     
