@@ -20,6 +20,8 @@ import pylab as plt
 
 from sklearn.metrics import accuracy_score
 
+from sklearn.manifold import TSNE
+
 #from tensorflow.python.ops import control_flow_ops
 
 if sys.version_info[0] == 3:
@@ -33,6 +35,8 @@ tf.flags.DEFINE_boolean("feat_size", 40, "Size of the features inner dimension (
 tf.flags.DEFINE_boolean("debug", False, "Limits the filelist size and is more debug.")
 
 tf.flags.DEFINE_boolean("gen_feats", False, "Load a model from train_dir")
+tf.flags.DEFINE_boolean("tnse_viz_speakers", False, "Vizualise how close speakers are in a trained embedding")
+
 tf.flags.DEFINE_boolean("test_sampling", False, "Test the sampling algorithm")
 
 tf.flags.DEFINE_boolean("generate_kaldi_output_feats", False, "Whether to write out a feature file for Kaldi (containing all utterances), requires a trained model")
@@ -177,11 +181,7 @@ def DenseFinal2D(l, name, pool_size=7):
 
 #from https://github.com/tensorflow/tensorflow/tree/r1.2/tensorflow/contrib/slim
 def vgg16_big(inputs):
-#  with slim.arg_scope([slim.conv2d, slim.fully_connected],
-#                      activation_fn=lrelu,
-#                      weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
-#                      weights_regularizer=slim.l2_regularizer(0.0005),
-#                      biases_initializer = tf.constant_initializer(0.01)):
+
     print('vgg input shape:',inputs.get_shape())
     net = slim.repeat(inputs, 2, slim.conv2d, 32, [3, 3], scope='conv1')
     print('vgg input conv1 shape:', net.get_shape())
@@ -203,24 +203,14 @@ def vgg16_big(inputs):
     print('vgg input conv5 shape:', net.get_shape())
     net = slim.max_pool2d(net, [2, 2], scope='pool5')
     print('vgg input pool5 shape:', net.get_shape())
-    #net = slim.fully_connected(net, 512, scope='fc6')
-    #print('vgg input fc1 shape:', net.get_shape())
-    #net = slim.dropout(net, 0.5, scope='dropout6')
-    #net = slim.fully_connected(net, 256, scope='fc7')
-    #print('vgg input fc2 shape:', net.get_shape())
-    #net = slim.dropout(net, 0.5, scope='dropout7')
-    #net = slim.fully_connected(net, 1000, activation_fn=None, scope='fc8')
+
     return net
 
 
 
 #from https://github.com/tensorflow/tensorflow/tree/r1.2/tensorflow/contrib/slim
 def vgg16(inputs):
-#  with slim.arg_scope([slim.conv2d, slim.fully_connected],
-#                      activation_fn=lrelu,
-#                      weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
-#                      weights_regularizer=slim.l2_regularizer(0.0005),
-#                      biases_initializer = tf.constant_initializer(0.01)):
+
     print('vgg input shape:',inputs.get_shape())
     net = slim.repeat(inputs, 2, slim.conv2d, 16, [3, 3], scope='conv1')
     print('vgg input conv1 shape:', net.get_shape())
@@ -238,15 +228,7 @@ def vgg16(inputs):
     print('vgg input conv4 shape:', net.get_shape())
     net = slim.max_pool2d(net, [2, 2], scope='pool4')
     print('vgg input pool4 shape:', net.get_shape())
-    #net = slim.repeat(net, 3, slim.conv2d, 512, [3, 3], scope='conv5')
-    #net = slim.max_pool2d(net, [2, 2], scope='pool5')
-    #net = slim.fully_connected(net, 512, scope='fc6')
-    #print('vgg input fc1 shape:', net.get_shape())
-    #net = slim.dropout(net, 0.5, scope='dropout6')
-    #net = slim.fully_connected(net, 256, scope='fc7')
-    #print('vgg input fc2 shape:', net.get_shape())
-    #net = slim.dropout(net, 0.5, scope='dropout7')
-    #net = slim.fully_connected(net, 1000, activation_fn=None, scope='fc8')
+
     return net
 
 # highway impl from https://github.com/fomorians/highway-fcn/blob/master/main.py
@@ -654,6 +636,78 @@ def get_model_flags_param_short():
                                     '_dropout_keep' + str(FLAGS.dropout_keep_prob) + ('_batchnorm_bndecay' + str(FLAGS.batch_normalization_decay) if FLAGS.batch_normalization else '') + '_l2_reg' + str(FLAGS.l2_reg) + \
                                     ('_highwaydnn' + str(FLAGS.num_highway_layers) if FLAGS.embedding_transformation=='HighwayDnn' else '') + \
                                     ('_dot_combine' if FLAGS.use_dot_combine else '')
+
+
+# do a tsne vizualization on how close speakers are in the embedded space on average
+def tnse_viz_speakers(utt_id_list, filelist, feats_outputfile, feats_format, hop_size):
+    filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
+    
+    if spk2utt is None:
+        print("You have to specify spk2utt for the speaker vizualization to work.")
+    
+    with tf.device('/gpu:1'):
+        with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
+            model = UnsupSeech(window_length=FLAGS.window_length, window_neg_length=FLAGS.window_neg_length, filter_sizes=filter_sizes, 
+                    num_filters=FLAGS.num_filters, fc_size=FLAGS.fc_size, embeddings_size=FLAGS.embedding_size, dropout_keep_prob=FLAGS.dropout_keep_prob, k = FLAGS.negative_samples, 
+                    left_contexts=FLAGS.left_contexts, right_contexts=FLAGS.right_contexts, train_files = utt_id_list,  batch_size=FLAGS.batch_size, is_training=False, create_new_train_dir=False)
+            
+            if FLAGS.train_dir != "":
+                print('FLAGS.train_dir',FLAGS.train_dir)
+                ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
+                print('ckpt:',ckpt)
+                if ckpt and ckpt.model_checkpoint_path:
+                    print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
+                    model.saver.restore(sess, ckpt.model_checkpoint_path)
+                    
+                idlist_size = len(utt_id_list)
+                spk_id=None
+    
+                spk2utt_keys = list(spk2utt.keys())
+                
+                num_speakers = len(spk2len.keys())
+                
+                print("Number of speakers is: ", num_speakers)
+                
+                spk_means = []
+                
+                spk_repeats = 20
+                
+                for spk_id in spk2utt_keys:
+                    for x in range(spk_repeats):
+                        print("Computing average for:", spk_id)
+                        #random_spk_num = int(math.floor(np.random.random_sample() * float(num_speakers)))
+                        #spk_id = spk2utt_keys[random_spk_num]
+                        samples_feats = []
+                        for i in range(200):
+                            sample, _ = get_random_audiosample(utt_id_list, idlist_size, FLAGS.window_length, random_id=None, spk2utt=spk2utt, spk_id=spk_id, spk2utt_keys=spk2utt_keys, num_speakers=num_speakers, spk2len=spk2len)
+                            feat = model.gen_feat_batch(sess,[sample])
+                            
+                            samples_feats.append(feat[0])
+                        
+                        spk_mean = np.mean(np.vstack(samples_feats), axis=0)
+                        spk_means.append(spk_mean)
+                        print("spk_mean:", spk_mean)
+                    
+                spk_means = np.vstack(spk_means)
+                
+                print('Calculating TSNE:')
+                model = TSNE(n_components=2, random_state=0)
+    
+                tsne_data = model.fit_transform(spk_means)
+                
+                colormap = plt.cm.gist_ncar #nipy_spectral, Set1,Paired  
+                colorst = colormap(np.linspace(0, 0.9, num_speakers)) #[colormap(i) for i in np.linspace(0, 0.9, num_speakers)]  
+                
+                cs = [colorst[i//spk_repeats] for i in range(num_speakers*spk_repeats)]
+                
+                print(tsne_data[:,0])
+                print(tsne_data[:,1])
+                
+                plt.scatter(tsne_data[:,0], tsne_data[:,1], color=cs)
+    
+                print('Now showing tsne plot:')
+                plt.show()
+                
     
 def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size):
     filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
@@ -956,6 +1010,10 @@ if __name__ == "__main__":
             else:
                 #make sure utterances are long enough if we are training
                 min_required_sampling_length = FLAGS.window_length + FLAGS.window_neg_length * (FLAGS.left_contexts + FLAGS.right_contexts)
+                
+                if FLAGS.tnse_viz_speakers:
+                    min_required_sampling_length = FLAGS.window_length
+                
                 print('min_required_sampling_length is:', min_required_sampling_length)
                 
                 #trim training data to minimum required sampling length
@@ -987,10 +1045,14 @@ if __name__ == "__main__":
         print('spk2len:',spk2len)
         
         num_speakers = len(spk2len.keys())
+    else:
+        print("No speaker information supplied, spk2utt is empty.")
         
     if FLAGS.test_sampling:
         test_sampling(utt_id_list, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers)
     if FLAGS.gen_feats:
         gen_feat(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize)
+    elif FLAGS.tnse_viz_speakers:
+        tnse_viz_speakers(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize)
     else:
         train(utt_id_list, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers)
