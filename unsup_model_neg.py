@@ -966,7 +966,8 @@ if __name__ == "__main__":
                 
                 print("Before filtering for minimum required length:", len(utt_id_list), "After filtering:", len(training_data.keys()))
     
-    if FLAGS.spk2utt != '':
+    if FLAGS.spk2utt != '' and FLAGS.spk2utt != 'fake':
+        
         print('Loading speaker information from ', FLAGS.spk2utt)
         spk2utt = utils.loadSpk2Utt(FLAGS.spk2utt)
         #print('spk2utt:',spk2utt)
