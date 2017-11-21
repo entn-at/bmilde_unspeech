@@ -552,6 +552,11 @@ class UnsupSeech(object):
                             needs_flattening = False   
                             print('pool shape after Resnet_v2_50_small block:', pooled.get_shape())
 
+                        if FLAGS.embedding_transformation == "Resnet_v2_50_small_flat":
+                            pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=False, spatial_squeeze=True, global_pool=False)
+                            needs_flattening = True   
+                            print('pool shape after Resnet_v2_50_small_flat block:', pooled.get_shape())
+
                         if needs_flattening:
                             flattened_size = int(pooled.get_shape()[1]*pooled.get_shape()[2]*pooled.get_shape()[3])
                             # Reshape conv2 output to fit fully connected layer input
