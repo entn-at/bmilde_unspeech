@@ -586,8 +586,8 @@ class UnsupSeech(object):
                         print('flattened_pooled shape:',self.flattened_pooled.get_shape())
         
                         if FLAGS.embedding_transformation.startswith("Resnet"):
-                            self.fc2 = slim.dropout(slim.fully_connected(self.flattened_pooled, self.embeddings_size), keep_prob=FLAGS.dropout_keep_prob, is_training=is_training)
-                            print('fc2 shape:',self.fc2.get_shape(), 'with dropout:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
+                            self.fc2 = slim.fully_connected(slim.dropout(self.flattened_pooled, keep_prob=FLAGS.dropout_keep_prob , is_training=is_training), self.embeddings_size)
+                            print('fc2 shape:',self.fc2.get_shape(), 'with inner dropout keep prob:', FLAGS.dropout_keep_prob)
                         else:
                             self.fc1 = slim.dropout(slim.fully_connected(self.flattened_pooled, self.fc_size), keep_prob=FLAGS.dropout_keep_prob , is_training=is_training) #weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
                             print('fc1 shape:',self.fc1.get_shape(), 'with dropout:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
