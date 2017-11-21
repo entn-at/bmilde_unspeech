@@ -678,7 +678,7 @@ def tnse_viz_speakers(utt_id_list, filelist, feats_outputfile, feats_format, hop
                         #random_spk_num = int(math.floor(np.random.random_sample() * float(num_speakers)))
                         #spk_id = spk2utt_keys[random_spk_num]
                         samples_feats = []
-                        for i in range(200):
+                        for i in range(5):
                             sample, _ = get_random_audiosample(utt_id_list, idlist_size, FLAGS.window_length, random_id=None, spk2utt=spk2utt, spk_id=spk_id, spk2utt_keys=spk2utt_keys, num_speakers=num_speakers, spk2len=spk2len)
                             feat = model.gen_feat_batch(sess,[sample])
                             
