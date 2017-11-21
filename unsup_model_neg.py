@@ -629,7 +629,7 @@ class UnsupSeech(object):
 
 def get_model_flags_param_short():
     ''' get model params as string, e.g. to use it in an output filepath '''
-    return ('e2e' if FLAGS.end_to_end else 'feats') + '_trans' + FLAGS.embedding_transformation + '_nsampling' + ('_same_spk' if spk2utt is not None else '_rnd') + '_win' + str(FLAGS.window_length) + \
+    return ('e2e' if FLAGS.end_to_end else 'feats') + '_trans' + FLAGS.embedding_transformation + '_nsampling' + ('_same_spk' if FLAGS.spk2utt is not None else '_rnd') + '_win' + str(FLAGS.window_length) + \
                                     '_neg_samples' + str(FLAGS.negative_samples) + '_lcontexts' + str(FLAGS.left_contexts) + '_rcontexts' + str(FLAGS.right_contexts) + \
                                     '_flts' + str(FLAGS.num_filters) + '_embsize' + str(FLAGS.embedding_size) + ('_dnn' + str(FLAGS.num_dnn_layers) if FLAGS.embedding_transformation=='BaselineDnn' else '') + \
                                     '_fc_size' + str(FLAGS.fc_size) + ('_unit_norm_var' if FLAGS.unit_normalize_var else '') + \
