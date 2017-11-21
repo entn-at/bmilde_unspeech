@@ -549,7 +549,8 @@ class UnsupSeech(object):
                         
                         if FLAGS.embedding_transformation == "Resnet_v2_50_small":
                             resnet_v2.resnet_v2_50_small(pooled, is_training=False, spatial_squeeze=True, global_pool=True)
-                            needs_flattening = False    
+                            needs_flattening = False   
+                            print('pool shape after Resnet_v2_50_small block:', pooled.get_shape())
 
                         if needs_flattening:
                             flattened_size = int(pooled.get_shape()[1]*pooled.get_shape()[2]*pooled.get_shape()[3])
