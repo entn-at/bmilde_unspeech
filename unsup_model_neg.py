@@ -422,7 +422,7 @@ class UnsupSeech(object):
         
         with slim.arg_scope([slim.conv2d, slim.fully_connected],  weights_initializer=tf.truncated_normal_initializer(stddev=0.01),
                                             #weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
-                                            weights_regularizer=slim.l2_regularizer(FLAGS.l2_reg),
+                                            weights_regularizer=slim.l2_regularizer(FLAGS.l2_reg) if FLAGS.l2_reg != 0.0 else None,
                                             activation_fn=lrelu,
                                             biases_initializer = tf.constant_initializer(0.01),
                                             normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
@@ -548,12 +548,13 @@ class UnsupSeech(object):
                             print('pool shape after vgg16 block:', pooled.get_shape())
                         
                         if FLAGS.embedding_transformation == "Resnet_v2_50_small":
-                            pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=False, spatial_squeeze=True, global_pool=True)
+                            pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=is_training, spatial_squeeze=True, global_pool=True, num_classes=self.fc_size)
                             needs_flattening = False   
                             print('pool shape after Resnet_v2_50_small block:', pooled.get_shape())
+                            print('is_training: ', is_training)
 
                         if FLAGS.embedding_transformation == "Resnet_v2_50_small_flat":
-                            pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=False, spatial_squeeze=True, global_pool=False)
+                            pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=is_training, spatial_squeeze=True, global_pool=False, num_classes=self.fc_size)
                             needs_flattening = True   
                             print('pool shape after Resnet_v2_50_small_flat block:', pooled.get_shape())
 
@@ -584,10 +585,14 @@ class UnsupSeech(object):
         
                         print('flattened_pooled shape:',self.flattened_pooled.get_shape())
         
-                        self.fc1 = slim.dropout(slim.fully_connected(self.flattened_pooled, self.fc_size), keep_prob=FLAGS.dropout_keep_prob , is_training=is_training) #weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
-                        print('fc1 shape:',self.fc1.get_shape(), 'with dropout:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
-                        self.fc2 = slim.dropout(slim.fully_connected(self.fc1, self.embeddings_size), keep_prob=FLAGS.dropout_keep_prob, is_training=is_training)
-                        print('fc2 shape:',self.fc2.get_shape(), 'with dropout:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
+                        if FLAGS.embedding_transformation.startswith("Resnet"):
+                            self.fc2 = slim.dropout(slim.fully_connected(self.flattened_pooled, self.embeddings_size), keep_prob=FLAGS.dropout_keep_prob, is_training=is_training)
+                            print('fc2 shape:',self.fc2.get_shape(), 'with dropout:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
+                        else:
+                            self.fc1 = slim.dropout(slim.fully_connected(self.flattened_pooled, self.fc_size), keep_prob=FLAGS.dropout_keep_prob , is_training=is_training) #weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
+                            print('fc1 shape:',self.fc1.get_shape(), 'with dropout:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
+                            self.fc2 = slim.dropout(slim.fully_connected(self.fc1, self.embeddings_size), keep_prob=FLAGS.dropout_keep_prob, is_training=is_training)
+                            print('fc2 shape:',self.fc2.get_shape(), 'with dropout:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
 
                         self.outs.append(self.fc2)
                 
