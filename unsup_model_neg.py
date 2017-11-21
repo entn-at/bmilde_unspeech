@@ -548,7 +548,7 @@ class UnsupSeech(object):
                             print('pool shape after vgg16 block:', pooled.get_shape())
                         
                         if FLAGS.embedding_transformation == "Resnet_v2_50_small":
-                            resnet_v2.resnet_v2_50_small(pooled, is_training=False, spatial_squeeze=True, global_pool=True)
+                            pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=False, spatial_squeeze=True, global_pool=True)
                             needs_flattening = False   
                             print('pool shape after Resnet_v2_50_small block:', pooled.get_shape())
 
