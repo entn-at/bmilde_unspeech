@@ -557,6 +557,7 @@ class UnsupSeech(object):
                             pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=is_training, spatial_squeeze=True, global_pool=False, num_classes=self.fc_size)
                             needs_flattening = True   
                             print('pool shape after Resnet_v2_50_small_flat block:', pooled.get_shape())
+                            print('is_training: ', is_training)
 
                         if needs_flattening:
                             flattened_size = int(pooled.get_shape()[1]*pooled.get_shape()[2]*pooled.get_shape()[3])
@@ -587,7 +588,7 @@ class UnsupSeech(object):
         
                         if FLAGS.embedding_transformation.startswith("Resnet"):
                             self.fc2 = slim.fully_connected(slim.dropout(self.flattened_pooled, keep_prob=FLAGS.dropout_keep_prob , is_training=is_training), self.embeddings_size)
-                            print('fc2 shape:',self.fc2.get_shape(), 'with inner dropout keep prob:', FLAGS.dropout_keep_prob)
+                            print('fc2 shape:',self.fc2.get_shape(), 'with inner dropout keep prob:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
                         else:
                             self.fc1 = slim.dropout(slim.fully_connected(self.flattened_pooled, self.fc_size), keep_prob=FLAGS.dropout_keep_prob , is_training=is_training) #weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
                             print('fc1 shape:',self.fc1.get_shape(), 'with dropout:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
@@ -645,7 +646,7 @@ class UnsupSeech(object):
 
 def get_model_flags_param_short():
     ''' get model params as string, e.g. to use it in an output filepath '''
-    return ('e2e' if FLAGS.end_to_end else 'feats') + '_trans' + FLAGS.embedding_transformation + '_nsampling' + ('_same_spk' if FLAGS.spk2utt is not None else '_rnd') + '_win' + str(FLAGS.window_length) + \
+    return ('e2e' if FLAGS.end_to_end else 'feats') + '_trans' + FLAGS.embedding_transformation + '_nsampling' + ('_same_spk' if FLAGS.spk2utt is not '' else '_rnd') + '_win' + str(FLAGS.window_length) + \
                                     '_neg_samples' + str(FLAGS.negative_samples) + '_lcontexts' + str(FLAGS.left_contexts) + '_rcontexts' + str(FLAGS.right_contexts) + \
                                     '_flts' + str(FLAGS.num_filters) + '_embsize' + str(FLAGS.embedding_size) + ('_dnn' + str(FLAGS.num_dnn_layers) if FLAGS.embedding_transformation=='BaselineDnn' else '') + \
                                     '_fc_size' + str(FLAGS.fc_size) + ('_unit_norm_var' if FLAGS.unit_normalize_var else '') + \
