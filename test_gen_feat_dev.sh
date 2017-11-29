@@ -9,7 +9,7 @@ num_dnn_layers=5
 embedding_size=100
 hop_size=1
 #additional_params="--batch_normalization --fc_size 1024 --unit_normalize_var"
-additional_params="--fc_size 512 --unit_normalize_var --window_length 16 --window_neg_length 16"
+additional_params="--fc_size 512 --unit_normalize_var --window_length 16 --window_neg_length 16 --unit_normalize_var"
 
 echo "computing feats for dev set..."
-python3 unsup_model_neg.py --tnse_viz_speakers --spk2utt data/dev/spk2utt --train_dir $run  --filelist data/dev/unnormalized.feats.ark  --num_filters $num_filters --embedding_transformation $embedding_transformation --num_highway_layers $num_highway_layers --embedding_size $embedding_size --num_dnn_layers $num_dnn_layers --hop_size $hop_size --additional_params $additional_params
+python3 unsup_model_neg.py --gen_feat --spk2utt data/dev/spk2utt --train_dir $run  --filelist data/dev/unnormalized.feats.ark  --num_filters $num_filters --embedding_transformation $embedding_transformation --num_highway_layers $num_highway_layers --embedding_size $embedding_size --num_dnn_layers $num_dnn_layers --hop_size $hop_size --additional_params $additional_params --output_feat_file feats/%model_params

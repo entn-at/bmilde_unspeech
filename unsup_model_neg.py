@@ -754,7 +754,7 @@ def tnse_viz_speakers(utt_id_list, filelist, feats_outputfile, feats_format, hop
                 plt.show()
                 
     
-def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size):
+def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, spk2utt, spk2len, num_speakers, test_perf=True):
     filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
     with tf.device(FLAGS.device):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
@@ -779,6 +779,37 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size):
                         print(sess.run(batch_var))
                     window_length_seconds = float(FLAGS.window_length)/float(FLAGS.sample_rate)
                     model_params = get_model_flags_param_short()
+                    
+                    if test_perf:
+                        print("test_perf is true, testing performance")
+                        
+                        num_samples = 100
+                        accs = np.zeros(num_samples)
+                        
+                        for i in xrange(num_samples):
+                            input_window_1, input_window_2, labels = get_batch_k_samples(idlist=utt_id_list, window_length=FLAGS.window_length, 
+                                                                                   window_neg_length=FLAGS.window_neg_length, left_contexts=FLAGS.left_contexts,
+                                                                                   right_contexts=FLAGS.right_contexts, k=FLAGS.negative_samples, 
+                                                                                   spk2utt=spk2utt, spk2len=spk2len , num_speakers=num_speakers)
+                
+                            out, test_loss = model.step(sess, input_window_1, input_window_2, labels)
+                            
+                            labels_len = len(labels)
+                            out_len = len(out)
+                    
+                            labels_flat = np.reshape(labels,[-1])
+                            out_flat = (np.reshape(out,[-1]) > 0.5) * 1.0
+                            out_flat_zero = np.zeros_like(labels_flat)
+                    
+                            accs[i] = accuracy_score(labels, out_flat)
+                    
+                            print('np.bincount:', np.bincount(out_flat.astype('int32')))
+                            print('len:', labels_len, out_len)
+                            print('true labels, out (first 40 dims):', list(zip(labels_flat,out_flat))[:60])
+                            print('accuracy:', accuracy_score(labels, out_flat))
+                            print('majority class accuracy:', accuracy_score(labels, out_flat_zero))
+                            
+                        print('mean accuracy:', np.mean(accs))
                     
                     outputfile = feats_outputfile.replace('%model_params', model_params)
                     
@@ -1105,7 +1136,7 @@ if __name__ == "__main__":
     if FLAGS.test_sampling:
         test_sampling(utt_id_list, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers)
     if FLAGS.gen_feats:
-        gen_feat(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize)
+        gen_feat(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers)
     elif FLAGS.tnse_viz_speakers:
         tnse_viz_speakers(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize)
     else:
