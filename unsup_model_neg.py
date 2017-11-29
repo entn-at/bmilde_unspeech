@@ -92,10 +92,10 @@ tf.flags.DEFINE_float("batch_normalization_decay", 0.999, "Decay for batch norma
 tf.flags.DEFINE_float("dropout_keep_prob", 0.9 , "Dropout keep probability")
 tf.flags.DEFINE_float("l2_reg", 0.0005 , "L2 regularization")
 
-tf.flags.DEFINE_integer("steps_per_checkpoint", 1000,
+tf.flags.DEFINE_integer("steps_per_checkpoint", 2000,
                                 "How many training steps to do per checkpoint.")
-tf.flags.DEFINE_integer("steps_per_summary", 500,
-                                "How many training steps to do per checkpoint.")
+tf.flags.DEFINE_integer("steps_per_summary", 4000,
+                                "How many training steps to do per summary.")
 
 tf.flags.DEFINE_integer("checkpoints_per_save", 1,
                                 "How many checkpoints until saving the model.")
@@ -111,6 +111,8 @@ tf.flags.DEFINE_boolean("log_tensorboard", True, "Log training process if this i
 tf.flags.DEFINE_string("train_dir", "/srv/data/milde/unspeech_models/neg/", "Training dir to resume training from. If empty, a new one will be created.")
 tf.flags.DEFINE_string("output_feat_file", "/srv/data/milde/unspeech_models/feats/", "Necessary suffixes will get appended (depending on output format).")
 tf.flags.DEFINE_string("output_feat_format", "kaldi_bin", "Feat format")
+
+tf.flags.DEFINE_string("device","/gpu:1", "Computation device, e.g. /gpu:1 for 1st GPU.")
 
 FLAGS = tf.flags.FLAGS
 
@@ -154,6 +156,19 @@ def pool1d(value, ksize, strides, padding, data_format="NHWC", name=None):
 #leakly relu to circumvent the dieing ReLU problem
 def lrelu(x, leak=0.2, name="lrelu"):
   return tf.maximum(x, leak*x)
+
+def variable_summaries(var):
+    """Attach a lot of summaries to a Tensor (for TensorBoard visualization)."""
+    with tf.name_scope('s_' + str(var.name).replace('unsupmodel/embedding-transform-','emb').replace('/','_').replace(':','_')):
+        mean = tf.reduce_mean(var)
+        tf.summary.scalar('mean', mean)
+        with tf.name_scope('stddev'):
+            stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
+        tf.summary.scalar('stddev', stddev)
+        tf.summary.scalar('max', tf.reduce_max(var))
+        tf.summary.scalar('min', tf.reduce_min(var))
+        tf.summary.histogram('histogram', var)
+
 
 #https://gist.github.com/awjuliani/fb10d1ea206fab25f946512d959e3894
 def DenseBlock2D(input_layer,filters, layer_num, num_connected, non_linearity=lrelu):
@@ -385,6 +400,9 @@ class UnsupSeech(object):
 
         if FLAGS.log_tensorboard:   
             loss_summary = tf.summary.scalar('loss', self.cost)
+
+            
+
             self.train_summary_op = tf.summary.merge_all()
             train_summary_dir = os.path.join(self.out_dir, "summaries", "train")
     
@@ -420,13 +438,14 @@ class UnsupSeech(object):
             print('batch_normalization is activated.')
             print('is_training:', is_training)
         
-        with slim.arg_scope([slim.conv2d, slim.fully_connected],  weights_initializer=tf.truncated_normal_initializer(stddev=0.01),
+        with slim.arg_scope([slim.conv2d, slim.fully_connected],  weights_initializer=tf.variance_scaling_initializer(), # tf.truncated_normal_initializer(stddev=0.01),
                                             #weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
                                             weights_regularizer=slim.l2_regularizer(FLAGS.l2_reg) if FLAGS.l2_reg != 0.0 else None,
                                             activation_fn=lrelu,
-                                            biases_initializer = tf.constant_initializer(0.01),
-                                            normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
-                                            normalizer_params={'is_training': is_training, 'decay': FLAGS.batch_normalization_decay} if FLAGS.batch_normalization else None):
+                                            biases_initializer = tf.constant_initializer(0.001),
+                                            #normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
+                                            #normalizer_params={'is_training': is_training, 'decay': FLAGS.batch_normalization_decay} if FLAGS.batch_normalization else None
+                                            ):
             with tf.variable_scope("unsupmodel"):
                 # a list of embeddings to use for the binary classifier (the embeddings are combined)
                 self.outs = []
@@ -548,16 +567,23 @@ class UnsupSeech(object):
                             print('pool shape after vgg16 block:', pooled.get_shape())
                         
                         if FLAGS.embedding_transformation == "Resnet_v2_50_small":
-                            pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=is_training, spatial_squeeze=True, global_pool=True, num_classes=self.fc_size)
+                            with slim.arg_scope(resnet_v2.resnet_arg_scope()): 
+                                pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=False, spatial_squeeze=True, global_pool=True, num_classes=self.fc_size)
                             needs_flattening = False   
                             print('pool shape after Resnet_v2_50_small block:', pooled.get_shape())
                             print('is_training: ', is_training)
 
                         if FLAGS.embedding_transformation == "Resnet_v2_50_small_flat":
-                            pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=is_training, spatial_squeeze=True, global_pool=False, num_classes=self.fc_size)
+                            with slim.arg_scope(resnet_v2.resnet_arg_scope()):
+                                pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=is_training, spatial_squeeze=False, global_pool=False, num_classes=self.fc_size)
                             needs_flattening = True   
                             print('pool shape after Resnet_v2_50_small_flat block:', pooled.get_shape())
                             print('is_training: ', is_training)
+					    
+                        # add summaries for res net and moving variance / moving averages of batch norm.
+                        if FLAGS.embedding_transformation.startswith("Resnet") and FLAGS.log_tensorboard:
+                            for var in list(self.end_points.values()) + [var for var in tf.global_variables() if 'moving' in var.name]:
+                                variable_summaries(var)
 
                         if needs_flattening:
                             flattened_size = int(pooled.get_shape()[1]*pooled.get_shape()[2]*pooled.get_shape()[3])
@@ -587,12 +613,12 @@ class UnsupSeech(object):
                         print('flattened_pooled shape:',self.flattened_pooled.get_shape())
         
                         if FLAGS.embedding_transformation.startswith("Resnet"):
-                            self.fc2 = slim.fully_connected(slim.dropout(self.flattened_pooled, keep_prob=FLAGS.dropout_keep_prob , is_training=is_training), self.embeddings_size)
+                            self.fc2 = slim.fully_connected(slim.dropout(self.flattened_pooled, keep_prob=FLAGS.dropout_keep_prob , is_training=is_training), self.embeddings_size, activation_fn=None, normalizer_fn=None)
                             print('fc2 shape:',self.fc2.get_shape(), 'with inner dropout keep prob:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
                         else:
                             self.fc1 = slim.dropout(slim.fully_connected(self.flattened_pooled, self.fc_size), keep_prob=FLAGS.dropout_keep_prob , is_training=is_training) #weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
                             print('fc1 shape:',self.fc1.get_shape(), 'with dropout:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
-                            self.fc2 = slim.dropout(slim.fully_connected(self.fc1, self.embeddings_size), keep_prob=FLAGS.dropout_keep_prob, is_training=is_training)
+                            self.fc2 = slim.fully_connected(self.fc1, self.embeddings_size, activation_fn=None, normalizer_fn=None)
                             print('fc2 shape:',self.fc2.get_shape(), 'with dropout:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
 
                         self.outs.append(self.fc2)
@@ -630,7 +656,9 @@ class UnsupSeech(object):
         
                 if is_training:
                     self.create_training_graphs(create_new_train_dir)
-                
+                else:
+                    self.create_training_graphs(create_new_train_dir=False)
+
                 self.saver = tf.train.Saver(tf.global_variables())
 
     # do a training step with the supplied input data
@@ -639,9 +667,9 @@ class UnsupSeech(object):
         _, output, loss = sess.run([self.train_op, self.out, self.cost], feed_dict=feed_dict)
         return  output, loss
 
-    def gen_feat_batch(self, sess, input_windows):
+    def gen_feat_batch(self, sess, input_windows, out_num=0):
         feed_dict = {self.input_window_1: input_windows}
-        feats = sess.run(self.outs[0], feed_dict=feed_dict)
+        feats = sess.run(self.outs[out_num], feed_dict=feed_dict)
         return feats
 
 def get_model_flags_param_short():
@@ -662,7 +690,7 @@ def tnse_viz_speakers(utt_id_list, filelist, feats_outputfile, feats_format, hop
     if spk2utt is None:
         print("You have to specify spk2utt for the speaker vizualization to work.")
     
-    with tf.device('/gpu:1'):
+    with tf.device(FLAGS.device):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
             model = UnsupSeech(window_length=FLAGS.window_length, window_neg_length=FLAGS.window_neg_length, filter_sizes=filter_sizes, 
                     num_filters=FLAGS.num_filters, fc_size=FLAGS.fc_size, embeddings_size=FLAGS.embedding_size, dropout_keep_prob=FLAGS.dropout_keep_prob, k = FLAGS.negative_samples, 
@@ -728,7 +756,7 @@ def tnse_viz_speakers(utt_id_list, filelist, feats_outputfile, feats_format, hop
     
 def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size):
     filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
-    with tf.device('/gpu:1'):
+    with tf.device(FLAGS.device):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
             model = UnsupSeech(window_length=FLAGS.window_length, window_neg_length=FLAGS.window_neg_length, filter_sizes=filter_sizes, 
                     num_filters=FLAGS.num_filters, fc_size=FLAGS.fc_size, embeddings_size=FLAGS.embedding_size, dropout_keep_prob=FLAGS.dropout_keep_prob, k = FLAGS.negative_samples, 
@@ -742,7 +770,13 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size):
                     print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
                     model.saver.restore(sess, ckpt.model_checkpoint_path)
                     first_file = True
-                    
+                    all_vars = tf.global_variables()
+                    batch_vars = [var for var in all_vars if 'moving' in var.name]
+                    print('vars:', all_vars)
+                    print('num batch vars:', len(batch_vars))
+                    for batch_var in batch_vars:
+                        print(batch_var)
+                        print(sess.run(batch_var))
                     window_length_seconds = float(FLAGS.window_length)/float(FLAGS.sample_rate)
                     model_params = get_model_flags_param_short()
                     
@@ -809,7 +843,7 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size):
     
 def train(utt_id_list, spk2utt=None, spk2len=None, num_speakers=None):
     filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
-    with tf.device('/gpu:1'):
+    with tf.device(FLAGS.device):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
             model = UnsupSeech(window_length=FLAGS.window_length, window_neg_length=FLAGS.window_neg_length, filter_sizes=filter_sizes, 
                                 num_filters=FLAGS.num_filters, fc_size=FLAGS.fc_size, embeddings_size = FLAGS.embedding_size, dropout_keep_prob=FLAGS.dropout_keep_prob, 
@@ -822,6 +856,8 @@ def train(utt_id_list, spk2utt=None, spk2len=None, num_speakers=None):
                 if ckpt and ckpt.model_checkpoint_path:
                     print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
                     model.saver.restore(sess, ckpt.model_checkpoint_path)
+                    print("model variables:")
+                    print(tf.global_variables())
                     restored = True
                 else:
                     print("Couldn't load parameters from:" + FLAGS.train_dir)

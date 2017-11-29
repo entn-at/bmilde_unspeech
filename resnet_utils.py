@@ -225,7 +225,8 @@ def stack_blocks_dense(net,
 def resnet_arg_scope(weight_decay=0.0001,
                      batch_norm_decay=0.997,
                      batch_norm_epsilon=1e-5,
-                     batch_norm_scale=True):
+                     batch_norm_scale=True,
+                     activation_fn=nn_ops.relu):
   """Defines the default ResNet arg scope.
 
   TODO(gpapan): The batch-normalization related default values above are
@@ -249,14 +250,14 @@ def resnet_arg_scope(weight_decay=0.0001,
       'decay': batch_norm_decay,
       'epsilon': batch_norm_epsilon,
       'scale': batch_norm_scale,
-      'updates_collections': ops.GraphKeys.UPDATE_OPS,
+      'updates_collections': None, #ops.GraphKeys.UPDATE_OPS,
   }
 
   with arg_scope(
       [layers_lib.conv2d],
       weights_regularizer=regularizers.l2_regularizer(weight_decay),
       weights_initializer=initializers.variance_scaling_initializer(),
-      activation_fn=nn_ops.relu,
+      activation_fn=activation_fn,
       normalizer_fn=layers.batch_norm,
       normalizer_params=batch_norm_params):
     with arg_scope([layers.batch_norm], **batch_norm_params):
