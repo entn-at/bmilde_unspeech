@@ -23,6 +23,8 @@ from sklearn.metrics import accuracy_score
 
 from sklearn.manifold import TSNE
 
+from sklearn.utils import shuffle
+
 #from tensorflow.python.ops import control_flow_ops
 
 if sys.version_info[0] == 3:
@@ -568,7 +570,7 @@ class UnsupSeech(object):
                         
                         if FLAGS.embedding_transformation == "Resnet_v2_50_small":
                             with slim.arg_scope(resnet_v2.resnet_arg_scope()): 
-                                pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=False, spatial_squeeze=True, global_pool=True, num_classes=self.fc_size)
+                                pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=True, spatial_squeeze=True, global_pool=True, num_classes=self.fc_size)
                             needs_flattening = False   
                             print('pool shape after Resnet_v2_50_small block:', pooled.get_shape())
                             print('is_training: ', is_training)
@@ -664,7 +666,11 @@ class UnsupSeech(object):
     # do a training step with the supplied input data
     def step(self, sess, input_window_1, input_window_2, labels):
         feed_dict = {self.input_window_1: input_window_1, self.input_window_2: input_window_2, self.labels: labels}
-        _, output, loss = sess.run([self.train_op, self.out, self.cost], feed_dict=feed_dict)
+        assert(len(input_window_1) == len(input_window_2))
+        assert(len(input_window_2) == len(labels))
+        tensor_out = sess.run([self.train_op, self.out, self.cost], feed_dict=feed_dict)
+        print(tensor_out)
+        _, output, loss = tensor_out
         return  output, loss
 
     def gen_feat_batch(self, sess, input_windows, out_num=0):
@@ -754,7 +760,7 @@ def tnse_viz_speakers(utt_id_list, filelist, feats_outputfile, feats_format, hop
                 plt.show()
                 
     
-def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, spk2utt, spk2len, num_speakers, test_perf=True):
+def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, spk2utt, spk2len, num_speakers, test_perf=True, debug_visualize=True):
     filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
     with tf.device(FLAGS.device):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
@@ -783,7 +789,7 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                     if test_perf:
                         print("test_perf is true, testing performance")
                         
-                        num_samples = 100
+                        num_samples = 1
                         accs = np.zeros(num_samples)
                         
                         for i in xrange(num_samples):
@@ -792,8 +798,21 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                                                                                    right_contexts=FLAGS.right_contexts, k=FLAGS.negative_samples, 
                                                                                    spk2utt=spk2utt, spk2len=spk2len , num_speakers=num_speakers)
                 
+                            input_window_1, input_window_2, labels = shuffle(input_window_1, input_window_2, labels)
+                
                             out, test_loss = model.step(sess, input_window_1, input_window_2, labels)
                             
+                            feed_dict = {model.input_window_1: input_window_1, model.input_window_2: input_window_2, model.labels: labels}
+                            assert(len(input_window_1) == len(input_window_2))
+                            assert(len(input_window_2) == len(labels))
+                            tensor_out = sess.run([model.train_op, model.out,model.outs[0],model.outs[1], model.cost], feed_dict=feed_dict)
+                            print(tensor_out)
+                            print(len(tensor_out))
+                            _, output, out0, out1 , loss = tensor_out
+                            if debug_visualize:
+                                plt.matshow(out0.T)
+                                plt.matshow(out1.T)
+                                plt.show()
                             labels_len = len(labels)
                             out_len = len(out)
                     
@@ -857,7 +876,13 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                             elif len(input_signal.shape)==2:
                                 rolling_shape = (FLAGS.window_length, input_signal.shape[-1])
                                 print('shape:',rolling_shape)
+                                
+                                #for elem in utils.rolling_window_better(input_signal, rolling_shape).reshape(-1,rolling_shape[0],rolling_shape[1]):
+                                #    plt.matshow(elem)
+                                #    plt.show()
                                 feat = model.gen_feat_batch(sess, utils.rolling_window_better(input_signal, rolling_shape).reshape(-1,rolling_shape[0],rolling_shape[1]))
+                                plt.matshow(feat.T)
+                                plt.show()
                             else:
                                 print("Can't apply rolling window, shape not supported:", input_signal.shape)
 
