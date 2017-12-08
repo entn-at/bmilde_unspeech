@@ -46,8 +46,11 @@ tf.flags.DEFINE_boolean("generate_kaldi_output_feats", False, "Whether to write 
 tf.flags.DEFINE_string("output_kaldi_ark", "output_kaldi.ark" , "Output file for Kaldi ark file")
 tf.flags.DEFINE_boolean("generate_challenge_output_feats", False, "Whether to write out a feature file in the unsupervise challenge format (containing all utterances), requires a trained model")
 
+tf.flags.DEFINE_integer("genfeat_combine_contexts", True, "True if positive and negative contexts should be combined. Doubles the unspeech representation size to 2x embed size.")
+tf.flags.DEFINE_integer("genfeat_combine_fbank", True, "True if fbank and unspeech representation should be combined.")
+
 tf.flags.DEFINE_integer("hop_size", 1,"The hopsize over the input features while genearting output features.")
-tf.flags.DEFINE_string("genfeat_hopsize", 1, "Hop size (in samples if end-to-end) for the feature generation.")
+tf.flags.DEFINE_integer("genfeat_hopsize", 1, "Hop size (in samples if end-to-end) for the feature generation.")
 
 tf.flags.DEFINE_boolean("kaldi_normalize_to_input_length", True, "Wether to normalize the genearted output feature length to the input length (by extending the input length accordingly before generating output features). Only makes send for hopsize=1 and non end-to-end models.")
 
@@ -80,6 +83,7 @@ tf.flags.DEFINE_integer("num_highway_layers", 6, "How many layers for the highwa
 tf.flags.DEFINE_integer("num_dnn_layers", 3, "How many layers for the baseline dnn.")
 
 tf.flags.DEFINE_boolean("tied_embeddings_transforms", False, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
+tf.flags.DEFINE_boolean("tied_final_embeddings_transforms", False, "Whether the final embedding transform should be tied. Can be set to True, even when window sizes don't match, but might not make much sense together with use_dot_combine.")
 tf.flags.DEFINE_boolean("use_weighted_loss_func", False, "Whether the class imbalance of having k negative samples should be countered by weighting the positive examples k-times more.")
 tf.flags.DEFINE_boolean("use_dot_combine", True, "Define the loss function over the logits of the dot product of window and context window.")
 tf.flags.DEFINE_boolean("unit_normalize", False, "Before computing the dot product, normalize network output to unit length. Effectively computes the cosine distance. Doesnt really help the optimization.")
@@ -576,6 +580,13 @@ class UnsupSeech(object):
                             needs_flattening = False   
                             print('pool shape after Resnet_v2_50_small block:', pooled.get_shape())
                             print('is_training: ', is_training)
+                            
+                        if FLAGS.embedding_transformation == "Resnet_v2_50":
+                            with slim.arg_scope(resnet_v2.resnet_arg_scope()): 
+                                pooled, self.end_points = resnet_v2.resnet_v2_50(pooled, is_training=True if force_resnet_istraining else is_training , spatial_squeeze=True, global_pool=True, num_classes=self.fc_size)
+                            needs_flattening = False   
+                            print('pool shape after Resnet_v2_50_small block:', pooled.get_shape())
+                            print('is_training: ', is_training)
 
                         if FLAGS.embedding_transformation == "Resnet_v2_50_small_flat":
                             with slim.arg_scope(resnet_v2.resnet_arg_scope()):
@@ -613,7 +624,10 @@ class UnsupSeech(object):
                         #with tf.variable_scope('visualization_embedding'):
                         #    flattened_pooled_normalized = utils.tensor_normalize_0_to_1(self.flattened_pooled)
                         #    tf.summary.image('learned_embedding', tf.reshape(flattened_pooled_normalized,[-1,1,flattened_size,1]), max_outputs=10)
-        
+                    with tf.variable_scope("embedding-transform" if FLAGS.tied_embeddings_transforms else "embedding-transform-" + str(i)):     
+                        if FLAGS.tied_final_embeddings_transforms and i > 0: 
+                            print("Reusing variables for embeddings computation.")
+                            tf.get_variable_scope().reuse_variables()
                         print('flattened_pooled shape:',flattened_pooled.get_shape())
                         self.pre_outs.append(flattened_pooled)
                         
@@ -646,8 +660,8 @@ class UnsupSeech(object):
                     stacked = self.outs[0] - self.outs[1] #tf.concat(self.outs, 1)
                     print('stacked shape:',stacked.get_shape())
                     
-                    self.logits = slim.fully_connected(stacked, self.embeddings_size)
-                    self.logits = slim.fully_connected(self.logits, 1, activation_fn=None)#weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
+                    #self.logits = slim.fully_connected(stacked, self.embeddings_size)
+                    self.logits = slim.fully_connected(self.stacked, 1, activation_fn=None, normalizer_fn=None)#weights_initializer=tf.truncated_normal_initializer(stddev=0.01))
                 
                 if FLAGS.use_weighted_loss_func and (k != self.left_contexts + self.right_contexts):
                     # the goal of the weighting is do counterbalance class imbalances, so that negative and positive examples have a 50% weight in the final loss each
@@ -765,7 +779,23 @@ def tnse_viz_speakers(utt_id_list, filelist, feats_outputfile, feats_format, hop
     
                 print('Now showing tsne plot:')
                 plt.show()
-                
+    
+
+# vizualise fbank, feat representation and neg feat representation, if supplied
+def viz_feat_rep(input_signal, feat, feat_neg):
+    f, (ax1, ax2, ax3) = plt.subplots(3, 1, sharex=True)
+    
+    ax1.xaxis.set_ticks_position('bottom')                        
+    ax1.imshow(input_signal.T, origin='lower', interpolation='nearest', aspect='equal')
+    
+    ax2.xaxis.set_ticks_position('bottom')
+    ax2.imshow(feat.T, origin='lower', interpolation='nearest', aspect='equal')
+    
+    if feat_neg is not None:
+        ax3.xaxis.set_ticks_position('bottom')
+        ax3.imshow(feat_neg.T, origin='lower', interpolation='nearest', aspect='equal')
+                                
+    plt.show()            
     
 def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, spk2utt, spk2len, num_speakers, test_perf=True, debug_visualize=True):
     filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
@@ -774,6 +804,8 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
             model = UnsupSeech(window_length=FLAGS.window_length, window_neg_length=FLAGS.window_neg_length, filter_sizes=filter_sizes, 
                     num_filters=FLAGS.num_filters, fc_size=FLAGS.fc_size, embeddings_size=FLAGS.embedding_size, dropout_keep_prob=FLAGS.dropout_keep_prob, k = FLAGS.negative_samples, 
                     left_contexts=FLAGS.left_contexts, right_contexts=FLAGS.right_contexts, train_files = utt_id_list,  batch_size=FLAGS.batch_size, is_training=False, create_new_train_dir=False)
+            
+            show_batch_vars = False
             
             if FLAGS.train_dir != "":
                 print('FLAGS.train_dir',FLAGS.train_dir)
@@ -786,10 +818,13 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                     all_vars = tf.global_variables()
                     batch_vars = [var for var in all_vars if 'moving' in var.name]
                     print('vars:', all_vars)
+                    print('vars len:', len(all_vars))
                     print('num batch vars:', len(batch_vars))
-                    for batch_var in batch_vars:
-                        print(batch_var)
-                        print(sess.run(batch_var))
+                    
+                    if show_batch_vars:
+                        for batch_var in batch_vars:
+                            print(batch_var)
+                            print(sess.run(batch_var))
                     window_length_seconds = float(FLAGS.window_length)/float(FLAGS.sample_rate)
                     model_params = get_model_flags_param_short()
                     
@@ -871,8 +906,10 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                             if FLAGS.kaldi_normalize_to_input_length:
                                 if hop_size==1:
                                     # Useful for feature combining, output length == input length after generating. Repeat the last input (frame) accordingly.
+                                    input_signal_orig = input_signal
                                     input_signal = np.array(input_signal)
                                     input_signal = np.vstack((input_signal, [input_signal[-1]]*(FLAGS.window_length-1)))
+                                    print('Extended input signal to:', len(input_signal), 'from', input_length)
                                 else:
                                     print('Warning, disabled kaldi_normalize_to_input_length since your hop size is not 1:', hop_size)
                             
@@ -892,32 +929,38 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                                 #rolling_full_array = np.vstack(rolling_full_array)
                                 #print(rolling_full_array.shape)
                                 #feat = model.gen_feat_batch(sess, np.copy(utils.rolling_window_better(input_signal, rolling_shape).reshape(-1,rolling_shape[0],rolling_shape[1])))
+                                
+                                print('length of tensorflow input features', len(rolling_full_array))
+                                
                                 feat = model.gen_feat_batch(sess, rolling_full_array, out_num=0)
                                 feat_neg = model.gen_feat_batch(sess, rolling_full_array, out_num=1)
                                 
-                                f, (ax1, ax2, ax3) = plt.subplots(3, 1, sharex=True)
-                            
-                                ax1.matshow(input_signal.T)
-                                ax2.matshow(feat.T)
-                                ax3.matshow(feat_neg.T)
+                                feat_factor = 100.0 / (feat.min() + feat.max() / 2.0)
+                                feat_neg_factor = 100.0 / (feat_neg.min() + feat_neg.max() / 2.0)
+
                                 
-                                plt.show()
-                                
-                                if len(input_signal) > 200:
-                                   f, (ax1, ax2, ax3) = plt.subplots(3, 1, sharex=True) 
+                                if debug_visualize:                            
+                                    viz_feat_rep(input_signal, feat, feat_neg)
                                     
-                                   input_signal_small = np.array(input_signal[100:200])
-                                   feat_signal_small = np.array(feat[100:200])
-                                   feat_neg_signal_small = np.array(feat_neg[100:200])
-                                   
-                                   ax1.matshow(input_signal_small.T)
-                                   ax1.xaxis.set_ticks_position('bottom')
-                                   ax2.matshow(feat_signal_small.T)
-                                   ax2.xaxis.set_ticks_position('bottom')
-                                   ax3.matshow(feat_neg_signal_small.T)
-                                   ax3.xaxis.set_ticks_position('bottom')
-                                
-                                   plt.show()
+                                    if len(input_signal) > 250:
+                                       f, (ax1, ax2, ax3) = plt.subplots(3, 1, sharex=True) 
+                                        
+                                       input_signal_small = np.array(input_signal[100:250])
+                                       feat_signal_small = np.array(feat[100:250])
+                                       feat_neg_signal_small = np.array(feat_neg[100:250])
+                                       
+                                       viz_feat_rep(input_signal_small, feat_signal_small , feat_neg_signal_small)
+                                       
+                                if FLAGS.genfeat_combine_contexts:
+                                    print('input signal:',len(input_signal))
+                                    print('feat:',len(feat))
+                                    feat = np.hstack([input_signal_orig, feat*feat_factor, feat_neg*feat_neg_factor])
+                                    
+                                    if debug_visualize:
+                                        viz_feat_rep(input_signal, feat , None)
+                                        if len(input_signal) > 200:
+                                            viz_feat_rep(input_signal_small, feat[100:200] , None)
+                                    
                             else:
                                 print("Can't apply rolling window, shape not supported:", input_signal.shape)
 
