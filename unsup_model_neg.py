@@ -580,6 +580,13 @@ class UnsupSeech(object):
                             needs_flattening = False   
                             print('pool shape after Resnet_v2_50_small block:', pooled.get_shape())
                             print('is_training: ', is_training)
+                            
+                        if FLAGS.embedding_transformation == "Resnet_v2_50":
+                            with slim.arg_scope(resnet_v2.resnet_arg_scope()): 
+                                pooled, self.end_points = resnet_v2.resnet_v2_50(pooled, is_training=True if force_resnet_istraining else is_training , spatial_squeeze=True, global_pool=True, num_classes=self.fc_size)
+                            needs_flattening = False   
+                            print('pool shape after Resnet_v2_50_small block:', pooled.get_shape())
+                            print('is_training: ', is_training)
 
                         if FLAGS.embedding_transformation == "Resnet_v2_50_small_flat":
                             with slim.arg_scope(resnet_v2.resnet_arg_scope()):
@@ -899,9 +906,10 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                             if FLAGS.kaldi_normalize_to_input_length:
                                 if hop_size==1:
                                     # Useful for feature combining, output length == input length after generating. Repeat the last input (frame) accordingly.
+                                    input_signal_orig = input_signal
                                     input_signal = np.array(input_signal)
                                     input_signal = np.vstack((input_signal, [input_signal[-1]]*(FLAGS.window_length-1)))
-                                    print('Extended input signal to:', len(input_signal))
+                                    print('Extended input signal to:', len(input_signal), 'from', input_length)
                                 else:
                                     print('Warning, disabled kaldi_normalize_to_input_length since your hop size is not 1:', hop_size)
                             
@@ -921,6 +929,9 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                                 #rolling_full_array = np.vstack(rolling_full_array)
                                 #print(rolling_full_array.shape)
                                 #feat = model.gen_feat_batch(sess, np.copy(utils.rolling_window_better(input_signal, rolling_shape).reshape(-1,rolling_shape[0],rolling_shape[1])))
+                                
+                                print('length of tensorflow input features', len(rolling_full_array))
+                                
                                 feat = model.gen_feat_batch(sess, rolling_full_array, out_num=0)
                                 feat_neg = model.gen_feat_batch(sess, rolling_full_array, out_num=1)
                                 
@@ -943,7 +954,7 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                                 if FLAGS.genfeat_combine_contexts:
                                     print('input signal:',len(input_signal))
                                     print('feat:',len(feat))
-                                    feat = np.hstack([input_signal, feat*feat_factor, feat_neg*feat_neg_factor])
+                                    feat = np.hstack([input_signal_orig, feat*feat_factor, feat_neg*feat_neg_factor])
                                     
                                     if debug_visualize:
                                         viz_feat_rep(input_signal, feat , None)
