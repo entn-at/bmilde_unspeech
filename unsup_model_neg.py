@@ -672,7 +672,7 @@ class UnsupSeech(object):
         assert(len(input_window_1) == len(input_window_2))
         assert(len(input_window_2) == len(labels))
         tensor_out = sess.run([self.train_op, self.out, self.cost], feed_dict=feed_dict)
-        print(tensor_out)
+        #print(tensor_out)
         _, output, loss = tensor_out
         return  output, loss
 
