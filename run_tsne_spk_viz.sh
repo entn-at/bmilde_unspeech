@@ -12,4 +12,4 @@ hop_size=1
 additional_params="--fc_size 512 --unit_normalize_var --window_length 50 --window_neg_length 50"
 
 echo "computing feats for dev set..."
-python3 unsup_model_neg.py --tnse_viz_speakers --spk2utt /Users/milde/inspect/spk2utt --train_dir $run  --filelist /Users/milde/inspect/dev/normalized.feats.ark  --num_filters $num_filters --embedding_transformation $embedding_transformation --num_highway_layers $num_highway_layers --embedding_size $embedding_size --num_dnn_layers $num_dnn_layers --hop_size $hop_size --additional_params $additional_params
+python3 unsup_model_neg.py --tnse_viz_speakers --spk2utt data/dev/spk2utt --train_dir $run  --filelist data/dev/unnormalized.feats.ark  --num_filters $num_filters --embedding_transformation $embedding_transformation --num_highway_layers $num_highway_layers --embedding_size $embedding_size --num_dnn_layers $num_dnn_layers --hop_size $hop_size --additional_params $additional_params
