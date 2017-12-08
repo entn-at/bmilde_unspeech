@@ -935,9 +935,10 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                                 feat = model.gen_feat_batch(sess, rolling_full_array, out_num=0)
                                 feat_neg = model.gen_feat_batch(sess, rolling_full_array, out_num=1)
                                 
-                                feat_factor = 100.0 / (feat.min() + feat.max() / 2.0)
-                                feat_neg_factor = 100.0 / (feat_neg.min() + feat_neg.max() / 2.0)
+                                feat_factor = 10.0 / (feat.min() + feat.max() / 2.0)
+                                feat_neg_factor = 10.0 / (feat_neg.min() + feat_neg.max() / 2.0)
 
+                                print('fbank factor:', (input_signal.min() + input_signal.max()) / 2.0 )
                                 
                                 if debug_visualize:                            
                                     viz_feat_rep(input_signal, feat, feat_neg)
