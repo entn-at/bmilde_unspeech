@@ -23,6 +23,8 @@ from sklearn.metrics import accuracy_score
 
 from sklearn.manifold import TSNE
 
+from sklearn.utils import shuffle
+
 #from tensorflow.python.ops import control_flow_ops
 
 if sys.version_info[0] == 3:
@@ -449,6 +451,7 @@ class UnsupSeech(object):
             with tf.variable_scope("unsupmodel"):
                 # a list of embeddings to use for the binary classifier (the embeddings are combined)
                 self.outs = []
+                self.pre_outs = []
                 for i,input_window in enumerate([self.input_window_1, self.input_window_2]):
                     with tf.variable_scope("embedding-transform" if FLAGS.tied_embeddings_transforms else "embedding-transform-" + str(i)):     
                         if FLAGS.tied_embeddings_transforms and i > 0: 
@@ -566,9 +569,10 @@ class UnsupSeech(object):
                             pooled = vgg16_big(pooled)
                             print('pool shape after vgg16 block:', pooled.get_shape())
                         
+                        force_resnet_istraining=True
                         if FLAGS.embedding_transformation == "Resnet_v2_50_small":
                             with slim.arg_scope(resnet_v2.resnet_arg_scope()): 
-                                pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=is_training, spatial_squeeze=True, global_pool=True, num_classes=self.fc_size)
+                                pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=True if force_resnet_istraining else is_training , spatial_squeeze=True, global_pool=True, num_classes=self.fc_size)
                             needs_flattening = False   
                             print('pool shape after Resnet_v2_50_small block:', pooled.get_shape())
                             print('is_training: ', is_training)
@@ -588,14 +592,14 @@ class UnsupSeech(object):
                         if needs_flattening:
                             flattened_size = int(pooled.get_shape()[1]*pooled.get_shape()[2]*pooled.get_shape()[3])
                             # Reshape conv2 output to fit fully connected layer input
-                            self.flattened_pooled = tf.reshape(pooled, [-1, flattened_size])
+                            flattened_pooled = tf.reshape(pooled, [-1, flattened_size])
                         else:
-                            self.flattened_pooled = pooled
+                            flattened_pooled = pooled
                         
                         if FLAGS.embedding_transformation == "HighwayDnn":
-                            self.flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*4)
+                            flattened_pooled = slim.fully_connected(self.flattened_pooled, fc_size*4)
                             for x in range(FLAGS.num_highway_layers):
-                                self.flattened_pooled = highway_layer(self.flattened_pooled, fc_size*4, lrelu, carry_bias=-1.0)
+                                flattened_pooled = highway_layer(self.flattened_pooled, fc_size*4, lrelu, carry_bias=-1.0)
                             
                         if FLAGS.embedding_transformation == "BaselineDnn":
                             #with slim.arg_scope([slim.conv2d, slim.fully_connected], weights_initializer=tf.truncated_normal_initializer(0.0, 0.01)):
@@ -604,24 +608,25 @@ class UnsupSeech(object):
                                                 #normalizer_fn=slim.batch_norm if FLAGS.batch_normalization else None,
                                                 #normalizer_params={'is_training': is_training, 'decay': 0.95} if FLAGS.batch_normalization else None):
                             for x in range(FLAGS.num_dnn_layers):
-                                self.flattened_pooled = slim.fully_connected(self.flattened_pooled, self.fc_size)                    
+                                flattened_pooled = slim.fully_connected(flattened_pooled, self.fc_size)                    
                    
                         #with tf.variable_scope('visualization_embedding'):
                         #    flattened_pooled_normalized = utils.tensor_normalize_0_to_1(self.flattened_pooled)
                         #    tf.summary.image('learned_embedding', tf.reshape(flattened_pooled_normalized,[-1,1,flattened_size,1]), max_outputs=10)
         
-                        print('flattened_pooled shape:',self.flattened_pooled.get_shape())
-        
+                        print('flattened_pooled shape:',flattened_pooled.get_shape())
+                        self.pre_outs.append(flattened_pooled)
+                        
                         if FLAGS.embedding_transformation.startswith("Resnet"):
-                            self.fc2 = slim.fully_connected(slim.dropout(self.flattened_pooled, keep_prob=FLAGS.dropout_keep_prob , is_training=is_training), self.embeddings_size, activation_fn=None, normalizer_fn=None)
-                            print('fc2 shape:',self.fc2.get_shape(), 'with inner dropout keep prob:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
+                            fc2 = slim.fully_connected(slim.dropout(flattened_pooled, keep_prob=FLAGS.dropout_keep_prob , is_training=is_training), self.embeddings_size, activation_fn=None, normalizer_fn=None)
+                            print('fc2 shape:',fc2.get_shape(), 'with inner dropout keep prob:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
                         else:
-                            self.fc1 = slim.dropout(slim.fully_connected(self.flattened_pooled, self.fc_size), keep_prob=FLAGS.dropout_keep_prob , is_training=is_training) #weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
-                            print('fc1 shape:',self.fc1.get_shape(), 'with dropout:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
-                            self.fc2 = slim.fully_connected(self.fc1, self.embeddings_size, activation_fn=None, normalizer_fn=None)
-                            print('fc2 shape:',self.fc2.get_shape(), 'with dropout:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
+                            fc1 = slim.dropout(slim.fully_connected(flattened_pooled, self.fc_size), keep_prob=FLAGS.dropout_keep_prob , is_training=is_training) #weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
+                            print('fc1 shape:',fc1.get_shape(), 'with dropout:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
+                            fc2 = slim.fully_connected(fc1, self.embeddings_size, activation_fn=None, normalizer_fn=None)
+                            print('fc2 shape:',fc2.get_shape(), 'with dropout:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
 
-                        self.outs.append(self.fc2)
+                        self.outs.append(fc2)
                 
                 if FLAGS.unit_normalize:
                     for x in xrange(len(self.outs)):
@@ -664,11 +669,19 @@ class UnsupSeech(object):
     # do a training step with the supplied input data
     def step(self, sess, input_window_1, input_window_2, labels):
         feed_dict = {self.input_window_1: input_window_1, self.input_window_2: input_window_2, self.labels: labels}
-        _, output, loss = sess.run([self.train_op, self.out, self.cost], feed_dict=feed_dict)
+        assert(len(input_window_1) == len(input_window_2))
+        assert(len(input_window_2) == len(labels))
+        tensor_out = sess.run([self.train_op, self.out, self.cost], feed_dict=feed_dict)
+        print(tensor_out)
+        _, output, loss = tensor_out
         return  output, loss
 
-    def gen_feat_batch(self, sess, input_windows, out_num=0):
-        feed_dict = {self.input_window_1: input_windows}
+    def gen_feat_batch(self, sess, input_windows, out_num=1):
+        if out_num==0:
+            feed_dict = {self.input_window_1: input_windows}
+        elif out_num==1:
+            feed_dict = {self.input_window_2: input_windows}
+        #feats = sess.run(self.pre_outs[out_num], feed_dict=feed_dict)
         feats = sess.run(self.outs[out_num], feed_dict=feed_dict)
         return feats
 
@@ -754,7 +767,7 @@ def tnse_viz_speakers(utt_id_list, filelist, feats_outputfile, feats_format, hop
                 plt.show()
                 
     
-def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size):
+def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, spk2utt, spk2len, num_speakers, test_perf=True, debug_visualize=True):
     filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
     with tf.device(FLAGS.device):
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
@@ -779,6 +792,50 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size):
                         print(sess.run(batch_var))
                     window_length_seconds = float(FLAGS.window_length)/float(FLAGS.sample_rate)
                     model_params = get_model_flags_param_short()
+                    
+                    if test_perf:
+                        print("test_perf is true, testing performance")
+                        
+                        num_samples = 1
+                        accs = np.zeros(num_samples)
+                        
+                        for i in xrange(num_samples):
+                            input_window_1, input_window_2, labels = get_batch_k_samples(idlist=utt_id_list, window_length=FLAGS.window_length, 
+                                                                                   window_neg_length=FLAGS.window_neg_length, left_contexts=FLAGS.left_contexts,
+                                                                                   right_contexts=FLAGS.right_contexts, k=FLAGS.negative_samples, 
+                                                                                   spk2utt=spk2utt, spk2len=spk2len , num_speakers=num_speakers)
+                
+                            input_window_1, input_window_2, labels = shuffle(input_window_1, input_window_2, labels)
+                
+                            out, test_loss = model.step(sess, input_window_1, input_window_2, labels)
+                            
+                            feed_dict = {model.input_window_1: input_window_1, model.input_window_2: input_window_2, model.labels: labels}
+                            assert(len(input_window_1) == len(input_window_2))
+                            assert(len(input_window_2) == len(labels))
+                            tensor_out = sess.run([model.train_op, model.out,model.outs[0],model.outs[1], model.cost], feed_dict=feed_dict)
+                            print(tensor_out)
+                            print(len(tensor_out))
+                            _, output, out0, out1 , loss = tensor_out
+                            if debug_visualize:
+                                plt.matshow(out0.T)
+                                plt.matshow(out1.T)
+                                plt.show()
+                            labels_len = len(labels)
+                            out_len = len(out)
+                    
+                            labels_flat = np.reshape(labels,[-1])
+                            out_flat = (np.reshape(out,[-1]) > 0.5) * 1.0
+                            out_flat_zero = np.zeros_like(labels_flat)
+                    
+                            accs[i] = accuracy_score(labels, out_flat)
+                    
+                            print('np.bincount:', np.bincount(out_flat.astype('int32')))
+                            print('len:', labels_len, out_len)
+                            print('true labels, out (first 40 dims):', list(zip(labels_flat,out_flat))[:60])
+                            print('accuracy:', accuracy_score(labels, out_flat))
+                            print('majority class accuracy:', accuracy_score(labels, out_flat_zero))
+                            
+                        print('mean accuracy:', np.mean(accs))
                     
                     outputfile = feats_outputfile.replace('%model_params', model_params)
                     
@@ -826,7 +883,41 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size):
                             elif len(input_signal.shape)==2:
                                 rolling_shape = (FLAGS.window_length, input_signal.shape[-1])
                                 print('shape:',rolling_shape)
-                                feat = model.gen_feat_batch(sess, utils.rolling_window_better(input_signal, rolling_shape).reshape(-1,rolling_shape[0],rolling_shape[1]))
+                                
+                                rolling_full_array = []
+                                for elem in utils.rolling_window_better(input_signal, rolling_shape).reshape(-1,rolling_shape[0],rolling_shape[1]):
+                                    #plt.matshow(elem)
+                                    #plt.show()
+                                    rolling_full_array.append(np.array(elem))
+                                #rolling_full_array = np.vstack(rolling_full_array)
+                                #print(rolling_full_array.shape)
+                                #feat = model.gen_feat_batch(sess, np.copy(utils.rolling_window_better(input_signal, rolling_shape).reshape(-1,rolling_shape[0],rolling_shape[1])))
+                                feat = model.gen_feat_batch(sess, rolling_full_array, out_num=0)
+                                feat_neg = model.gen_feat_batch(sess, rolling_full_array, out_num=1)
+                                
+                                f, (ax1, ax2, ax3) = plt.subplots(3, 1, sharex=True)
+                            
+                                ax1.matshow(input_signal.T)
+                                ax2.matshow(feat.T)
+                                ax3.matshow(feat_neg.T)
+                                
+                                plt.show()
+                                
+                                if len(input_signal) > 200:
+                                   f, (ax1, ax2, ax3) = plt.subplots(3, 1, sharex=True) 
+                                    
+                                   input_signal_small = np.array(input_signal[100:200])
+                                   feat_signal_small = np.array(feat[100:200])
+                                   feat_neg_signal_small = np.array(feat_neg[100:200])
+                                   
+                                   ax1.matshow(input_signal_small.T)
+                                   ax1.xaxis.set_ticks_position('bottom')
+                                   ax2.matshow(feat_signal_small.T)
+                                   ax2.xaxis.set_ticks_position('bottom')
+                                   ax3.matshow(feat_neg_signal_small.T)
+                                   ax3.xaxis.set_ticks_position('bottom')
+                                
+                                   plt.show()
                             else:
                                 print("Can't apply rolling window, shape not supported:", input_signal.shape)
 
@@ -1105,7 +1196,7 @@ if __name__ == "__main__":
     if FLAGS.test_sampling:
         test_sampling(utt_id_list, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers)
     if FLAGS.gen_feats:
-        gen_feat(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize)
+        gen_feat(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers)
     elif FLAGS.tnse_viz_speakers:
         tnse_viz_speakers(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize)
     else:
