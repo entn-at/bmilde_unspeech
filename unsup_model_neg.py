@@ -90,6 +90,10 @@ tf.flags.DEFINE_boolean("unit_normalize", False, "Before computing the dot produ
 tf.flags.DEFINE_boolean("unit_normalize_var", False, "Use a trainable var to scale the output of the network.")
 
 tf.flags.DEFINE_integer("negative_samples", 4, "How many negative samples to generate.")
+tf.flags.DEFINE_integer("test_perf_samples", 100, "How many batches to generate for testing accuracy.")
+
+tf.flags.DEFINE_boolean("test_perf", True, "When generating features, test accuracy by randomly sampling batches and compare the prediction quality of the model.")
+tf.flags.DEFINE_boolean("debug_visualize", False , "Visualize the generated features.")
 
 tf.flags.DEFINE_integer("batch_size", 32, "Batch Size (default: 64)")
 tf.flags.DEFINE_boolean("batch_normalization", False, "Whether to use batch normalization.")
@@ -342,10 +346,14 @@ def get_batch_k_samples(idlist, window_length, window_neg_length, spk2utt=None, 
                 if context_num !=0:
                     window = combined_sample[center_window_pos:center_window_pos+window_length]
                     window_neg = combined_sample[neg_pos:neg_pos+window_neg_length] 
-                    # Assign label 1, if both windows are consecutive    
-                    labels.append(1.0)
-                    window_batch.append(window)
-                    window_neg_batch.append(window_neg)
+                    
+                    if window.shape[0] == window_length and window_neg.shape[0] == window_neg_length:
+                        # Assign label 1, if both windows are consecutive    
+                        labels.append(1.0)
+                        window_batch.append(window)
+                        window_neg_batch.append(window_neg)
+                    else:
+                        print('Warning, window size not correct in get_batch_k_samples:', 'shape(w):', window.shape, 'shape(neg_w):' ,window_neg.shape, '. I will ignore this sample.')
         else:
             
             if debug:
@@ -354,11 +362,15 @@ def get_batch_k_samples(idlist, window_length, window_neg_length, spk2utt=None, 
             # Otherwise, if random_file_num is not None, we do per utterance sampling.
             window, _ = get_random_audiosample(idlist, idlist_size, window_length, random_id=None, spk2utt=spk2utt, spk_id=spk_id, spk2utt_keys=spk2utt_keys, num_speakers=num_speakers, spk2len=spk2len)
             window_neg, _ = get_random_audiosample(idlist, idlist_size, window_neg_length, random_id=None, spk2utt=spk2utt, spk_id=spk_id, spk2utt_keys=spk2utt_keys, num_speakers=num_speakers, spk2len= spk2len)
-            # Assign label 0, if both windows are randomly sampled
-            labels.append(0.0)
             
-            window_batch.append(window)
-            window_neg_batch.append(window_neg)
+            if window.shape[0] == window_length and window_neg.shape[0] == window_neg_length:
+                # Assign label 0, if both windows are randomly sampled
+                labels.append(0.0)
+            
+                window_batch.append(window)
+                window_neg_batch.append(window_neg)
+            else:
+                print('Warning, window size not correct in get_batch_k_samples:', 'shape(w):', window.shape, 'shape(neg_w):' ,window_neg.shape, '. I will ignore this sample.')
 
     labels = np.asarray(labels).reshape(-1,1)
 
@@ -829,9 +841,9 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                     model_params = get_model_flags_param_short()
                     
                     if test_perf:
-                        print("test_perf is true, testing performance")
+                        print("test_perf is true, testing performance. Using", FLAGS.test_perf_samples, 'batches to test accuracy.')
                         
-                        num_samples = 1
+                        num_samples = FLAGS.test_perf_samples
                         accs = np.zeros(num_samples)
                         
                         for i in xrange(num_samples):
@@ -842,14 +854,24 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                 
                             input_window_1, input_window_2, labels = shuffle(input_window_1, input_window_2, labels)
                 
+                            #print(type(input_window_1), type(input_window_2), type(labels))
+                            #
+                            #for j,elem in enumerate(input_window_1):
+                            #    print('type:',j,type(elem))
+                            #    print('shape:',elem.shape)
+                            #    
+                            #for j,elem in enumerate(input_window_2):
+                            #    print('type:',j,type(elem))
+                            #    print('shape:',elem.shape)
+                
                             out, test_loss = model.step(sess, input_window_1, input_window_2, labels)
                             
                             feed_dict = {model.input_window_1: input_window_1, model.input_window_2: input_window_2, model.labels: labels}
                             assert(len(input_window_1) == len(input_window_2))
                             assert(len(input_window_2) == len(labels))
                             tensor_out = sess.run([model.train_op, model.out,model.outs[0],model.outs[1], model.cost], feed_dict=feed_dict)
-                            print(tensor_out)
-                            print(len(tensor_out))
+                            #print(tensor_out)
+                            #print(len(tensor_out))
                             _, output, out0, out1 , loss = tensor_out
                             if debug_visualize:
                                 plt.matshow(out0.T)
@@ -863,18 +885,29 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                             out_flat_zero = np.zeros_like(labels_flat)
                     
                             accs[i] = accuracy_score(labels, out_flat)
+                            majority_accuracy = accuracy_score(labels, out_flat_zero)
                     
                             print('np.bincount:', np.bincount(out_flat.astype('int32')))
                             print('len:', labels_len, out_len)
                             print('true labels, out (first 40 dims):', list(zip(labels_flat,out_flat))[:60])
-                            print('accuracy:', accuracy_score(labels, out_flat))
-                            print('majority class accuracy:', accuracy_score(labels, out_flat_zero))
-                            
-                        print('mean accuracy:', np.mean(accs))
+                            print('accuracy:', accs[i])
+                            print('majority class accuracy:', majority_accuracy)
+                        
+                        mean_accuracy = np.mean(accs)
+                        print('mean accuracy:', mean_accuracy)
                     
                     outputfile = feats_outputfile.replace('%model_params', model_params)
                     
-                    utils.ensure_dir(outputfile)
+                    utils.ensure_dir(outputfile + '/' if outputfile[-1] != '/' else outputfile)
+                    
+                    if test_perf:
+                        with open(outputfile + '/sampled_accuracy','w') as sampled_accuracy:
+                            sampled_accuracy.write('SUMMARY:\n')
+                            sampled_accuracy.write('mean accuracy:' + str(mean_accuracy) + '\n')
+                            sampled_accuracy.write('majority accuracy:' + str(majority_accuracy) + '\n')
+                            sampled_accuracy.write('BATCHES:\n')
+                            for elem in accs:
+                                sampled_accuracy.write(str(elem) + '\n')
                     
                     # model is now loaded with the trained parameters
                     for myfile in utt_id_list:
@@ -1240,8 +1273,8 @@ if __name__ == "__main__":
     if FLAGS.test_sampling:
         test_sampling(utt_id_list, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers)
     if FLAGS.gen_feats:
-        gen_feat(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers)
+        gen_feat(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers, test_perf=FLAGS.test_perf, debug_visualize=FLAGS.debug_visualize)
     elif FLAGS.tnse_viz_speakers:
-        tnse_viz_speakers(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize)
+        tnse_viz_speakers(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize, test_perf=FLAGS.test_perf, debug_visualize=FLAGS.debug_visualize)
     else:
         train(utt_id_list, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers)
