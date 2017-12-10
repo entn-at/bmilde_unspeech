@@ -90,9 +90,19 @@ tf.flags.DEFINE_boolean("unit_normalize", False, "Before computing the dot produ
 tf.flags.DEFINE_boolean("unit_normalize_var", False, "Use a trainable var to scale the output of the network.")
 
 tf.flags.DEFINE_integer("negative_samples", 4, "How many negative samples to generate.")
+tf.flags.DEFINE_integer("test_perf_samples", 1000, "How many batches to generate for testing accuracy.")
+
+tf.flags.DEFINE_boolean("test_perf", True, "When generating features, test accuracy by randomly sampling batches and compare the prediction quality of the model.")
+tf.flags.DEFINE_boolean("debug_visualize", False , "Visualize the generated features.")
+tf.flags.DEFINE_boolean("debug_visualize_batch", False , "Visualize the generated batches.")
+
+tf.flags.DEFINE_boolean("generate_fbank_segmentation", False, "Generate a segmentation feature in the output representation (needs use_dot_combine at the moment)")
 
 tf.flags.DEFINE_integer("batch_size", 32, "Batch Size (default: 64)")
 tf.flags.DEFINE_boolean("batch_normalization", False, "Whether to use batch normalization.")
+
+tf.flags.DEFINE_boolean("force_resnet_istraining", True, "Force true for resnet is_training parameter. Sometimes this helps to avoid low test performance when loading the model, might be batch normalization related.")
+
 tf.flags.DEFINE_float("batch_normalization_decay", 0.999, "Decay for batch normalization. Make this value smaller (e.g. 0.95), if you want the bn averages to compute/warm up faster. Closer to 1.0 = averages are more stable throughout training. Default 0.99.")
 
 tf.flags.DEFINE_float("dropout_keep_prob", 0.9 , "Dropout keep probability")
@@ -342,10 +352,14 @@ def get_batch_k_samples(idlist, window_length, window_neg_length, spk2utt=None, 
                 if context_num !=0:
                     window = combined_sample[center_window_pos:center_window_pos+window_length]
                     window_neg = combined_sample[neg_pos:neg_pos+window_neg_length] 
-                    # Assign label 1, if both windows are consecutive    
-                    labels.append(1.0)
-                    window_batch.append(window)
-                    window_neg_batch.append(window_neg)
+                    
+                    if window.shape[0] == window_length and window_neg.shape[0] == window_neg_length:
+                        # Assign label 1, if both windows are consecutive    
+                        labels.append(1.0)
+                        window_batch.append(window)
+                        window_neg_batch.append(window_neg)
+                    else:
+                        print('Warning, window size not correct in get_batch_k_samples:', 'shape(w):', window.shape, 'shape(neg_w):' ,window_neg.shape, '. I will ignore this sample.')
         else:
             
             if debug:
@@ -354,11 +368,15 @@ def get_batch_k_samples(idlist, window_length, window_neg_length, spk2utt=None, 
             # Otherwise, if random_file_num is not None, we do per utterance sampling.
             window, _ = get_random_audiosample(idlist, idlist_size, window_length, random_id=None, spk2utt=spk2utt, spk_id=spk_id, spk2utt_keys=spk2utt_keys, num_speakers=num_speakers, spk2len=spk2len)
             window_neg, _ = get_random_audiosample(idlist, idlist_size, window_neg_length, random_id=None, spk2utt=spk2utt, spk_id=spk_id, spk2utt_keys=spk2utt_keys, num_speakers=num_speakers, spk2len= spk2len)
-            # Assign label 0, if both windows are randomly sampled
-            labels.append(0.0)
             
-            window_batch.append(window)
-            window_neg_batch.append(window_neg)
+            if window.shape[0] == window_length and window_neg.shape[0] == window_neg_length:
+                # Assign label 0, if both windows are randomly sampled
+                labels.append(0.0)
+            
+                window_batch.append(window)
+                window_neg_batch.append(window_neg)
+            else:
+                print('Warning, window size not correct in get_batch_k_samples:', 'shape(w):', window.shape, 'shape(neg_w):' ,window_neg.shape, '. I will ignore this sample.')
 
     labels = np.asarray(labels).reshape(-1,1)
 
@@ -573,7 +591,7 @@ class UnsupSeech(object):
                             pooled = vgg16_big(pooled)
                             print('pool shape after vgg16 block:', pooled.get_shape())
                         
-                        force_resnet_istraining=True
+                        force_resnet_istraining=FLAGS.force_resnet_istraining
                         if FLAGS.embedding_transformation == "Resnet_v2_50_small":
                             with slim.arg_scope(resnet_v2.resnet_arg_scope()): 
                                 pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=True if force_resnet_istraining else is_training , spatial_squeeze=True, global_pool=True, num_classes=self.fc_size)
@@ -590,7 +608,7 @@ class UnsupSeech(object):
 
                         if FLAGS.embedding_transformation == "Resnet_v2_50_small_flat":
                             with slim.arg_scope(resnet_v2.resnet_arg_scope()):
-                                pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=is_training, spatial_squeeze=False, global_pool=False, num_classes=self.fc_size)
+                                pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=True if force_resnet_istraining else is_training, spatial_squeeze=False, global_pool=False, num_classes=self.fc_size)
                             needs_flattening = True   
                             print('pool shape after Resnet_v2_50_small_flat block:', pooled.get_shape())
                             print('is_training: ', is_training)
@@ -829,9 +847,9 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                     model_params = get_model_flags_param_short()
                     
                     if test_perf:
-                        print("test_perf is true, testing performance")
+                        print("test_perf is true, testing performance. Using", FLAGS.test_perf_samples, 'batches to test accuracy.')
                         
-                        num_samples = 1
+                        num_samples = FLAGS.test_perf_samples
                         accs = np.zeros(num_samples)
                         
                         for i in xrange(num_samples):
@@ -842,16 +860,26 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                 
                             input_window_1, input_window_2, labels = shuffle(input_window_1, input_window_2, labels)
                 
+                            #print(type(input_window_1), type(input_window_2), type(labels))
+                            #
+                            #for j,elem in enumerate(input_window_1):
+                            #    print('type:',j,type(elem))
+                            #    print('shape:',elem.shape)
+                            #    
+                            #for j,elem in enumerate(input_window_2):
+                            #    print('type:',j,type(elem))
+                            #    print('shape:',elem.shape)
+                
                             out, test_loss = model.step(sess, input_window_1, input_window_2, labels)
                             
                             feed_dict = {model.input_window_1: input_window_1, model.input_window_2: input_window_2, model.labels: labels}
                             assert(len(input_window_1) == len(input_window_2))
                             assert(len(input_window_2) == len(labels))
                             tensor_out = sess.run([model.train_op, model.out,model.outs[0],model.outs[1], model.cost], feed_dict=feed_dict)
-                            print(tensor_out)
-                            print(len(tensor_out))
+                            #print(tensor_out)
+                            #print(len(tensor_out))
                             _, output, out0, out1 , loss = tensor_out
-                            if debug_visualize:
+                            if FLAGS.debug_visualize_batch:
                                 plt.matshow(out0.T)
                                 plt.matshow(out1.T)
                                 plt.show()
@@ -863,18 +891,31 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                             out_flat_zero = np.zeros_like(labels_flat)
                     
                             accs[i] = accuracy_score(labels, out_flat)
+                            majority_accuracy = accuracy_score(labels, out_flat_zero)
                     
                             print('np.bincount:', np.bincount(out_flat.astype('int32')))
                             print('len:', labels_len, out_len)
                             print('true labels, out (first 40 dims):', list(zip(labels_flat,out_flat))[:60])
-                            print('accuracy:', accuracy_score(labels, out_flat))
-                            print('majority class accuracy:', accuracy_score(labels, out_flat_zero))
-                            
-                        print('mean accuracy:', np.mean(accs))
+                            print('accuracy:', accs[i])
+                            print('majority class accuracy:', majority_accuracy)
+                        
+                        mean_accuracy = np.mean(accs)
+                        print('mean accuracy:', mean_accuracy)
                     
                     outputfile = feats_outputfile.replace('%model_params', model_params)
                     
+                    #utils.ensure_dir(outputfile + '/' if outputfile[-1] != '/' else outputfile)
                     utils.ensure_dir(outputfile)
+                    
+                    if test_perf:
+                        sampled_accuracy_outputfile = '/'.join(outputfile.split('/')[:-1]) + '/sampled_accuracy'
+                        with open(sampled_accuracy_outputfile,'w') as sampled_accuracy:
+                            sampled_accuracy.write('SUMMARY:\n')
+                            sampled_accuracy.write('mean accuracy:' + str(mean_accuracy) + '\n')
+                            sampled_accuracy.write('majority accuracy:' + str(majority_accuracy) + '\n')
+                            sampled_accuracy.write('BATCHES:\n')
+                            for elem in accs:
+                                sampled_accuracy.write(str(elem) + '\n')
                     
                     # model is now loaded with the trained parameters
                     for myfile in utt_id_list:
@@ -935,17 +976,25 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                                 feat = model.gen_feat_batch(sess, rolling_full_array, out_num=0)
                                 feat_neg = model.gen_feat_batch(sess, rolling_full_array, out_num=1)
                                 
-                                feat_factor = 10.0 / (feat.min() + feat.max() / 2.0)
-                                feat_neg_factor = 10.0 / (feat_neg.min() + feat_neg.max() / 2.0)
+                                feat_factor = 10.0 / (abs(feat.min()) + abs(feat.max()) / 2.0)
+                                feat_neg_factor = 10.0 / (abs(feat_neg.min()) + abs(feat_neg.max()) / 2.0)
 
-                                print('fbank factor:', (input_signal.min() + input_signal.max()) / 2.0 )
+                                print('fbank factor:', (abs(input_signal.min()) + abs(input_signal.max())) / 2.0 )
+                                
+                                if FLAGS.generate_fbank_segmentation:
+                                    segmentation_feat_1 = np.dot(feat[:-FLAGS.window_length], feat_neg[FLAGS.window_length:])
+                                    
+                                    f, (ax1, ax2) = plt.subplots(2, 1, sharex=True)
+                                    
+                                    ax1.xaxis.set_ticks_position('bottom')                        
+                                    ax1.imshow(input_signal.T, origin='lower', interpolation='nearest', aspect='equal')
+                                    
+                                    ax2.plot(range(len(input_signal)), np.log1p(segmentation_feat_1))
                                 
                                 if debug_visualize:                            
                                     viz_feat_rep(input_signal, feat, feat_neg)
                                     
-                                    if len(input_signal) > 250:
-                                       f, (ax1, ax2, ax3) = plt.subplots(3, 1, sharex=True) 
-                                        
+                                    if len(input_signal) > 250:                                        
                                        input_signal_small = np.array(input_signal[100:250])
                                        feat_signal_small = np.array(feat[100:250])
                                        feat_neg_signal_small = np.array(feat_neg[100:250])
@@ -955,7 +1004,8 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                                 if FLAGS.genfeat_combine_contexts:
                                     print('input signal:',len(input_signal))
                                     print('feat:',len(feat))
-                                    feat = np.hstack([input_signal_orig, feat*feat_factor, feat_neg*feat_neg_factor])
+                                    # feat = np.hstack([input_signal_orig, feat*feat_factor, feat_neg*feat_neg_factor])
+                                    feat = np.hstack([feat*feat_factor, feat_neg*feat_neg_factor])
                                     
                                     if debug_visualize:
                                         viz_feat_rep(input_signal, feat , None)
@@ -1240,8 +1290,8 @@ if __name__ == "__main__":
     if FLAGS.test_sampling:
         test_sampling(utt_id_list, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers)
     if FLAGS.gen_feats:
-        gen_feat(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers)
+        gen_feat(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers, test_perf=FLAGS.test_perf, debug_visualize=FLAGS.debug_visualize)
     elif FLAGS.tnse_viz_speakers:
-        tnse_viz_speakers(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize)
+        tnse_viz_speakers(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize, test_perf=FLAGS.test_perf, debug_visualize=FLAGS.debug_visualize)
     else:
         train(utt_id_list, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers)
