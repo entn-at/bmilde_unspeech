@@ -585,7 +585,7 @@ class UnsupSeech(object):
                             with slim.arg_scope(resnet_v2.resnet_arg_scope()): 
                                 pooled, self.end_points = resnet_v2.resnet_v2_50(pooled, is_training=True if force_resnet_istraining else is_training , spatial_squeeze=True, global_pool=True, num_classes=self.fc_size)
                             needs_flattening = False   
-                            print('pool shape after Resnet_v2_50_small block:', pooled.get_shape())
+                            print('pool shape after Resnet_v2_50 block:', pooled.get_shape())
                             print('is_training: ', is_training)
 
                         if FLAGS.embedding_transformation == "Resnet_v2_50_small_flat":
@@ -624,7 +624,7 @@ class UnsupSeech(object):
                         #with tf.variable_scope('visualization_embedding'):
                         #    flattened_pooled_normalized = utils.tensor_normalize_0_to_1(self.flattened_pooled)
                         #    tf.summary.image('learned_embedding', tf.reshape(flattened_pooled_normalized,[-1,1,flattened_size,1]), max_outputs=10)
-                    with tf.variable_scope("embedding-transform" if FLAGS.tied_embeddings_transforms else "embedding-transform-" + str(i)):     
+                    with tf.variable_scope("embedding-transform" if FLAGS.tied_final_embeddings_transforms else "embedding-transform-" + str(i)):     
                         if FLAGS.tied_final_embeddings_transforms and i > 0: 
                             print("Reusing variables for embeddings computation.")
                             tf.get_variable_scope().reuse_variables()
@@ -707,7 +707,7 @@ def get_model_flags_param_short():
                                     '_fc_size' + str(FLAGS.fc_size) + ('_unit_norm_var' if FLAGS.unit_normalize_var else '') + \
                                     '_dropout_keep' + str(FLAGS.dropout_keep_prob) + ('_batchnorm_bndecay' + str(FLAGS.batch_normalization_decay) if FLAGS.batch_normalization else '') + '_l2_reg' + str(FLAGS.l2_reg) + \
                                     ('_highwaydnn' + str(FLAGS.num_highway_layers) if FLAGS.embedding_transformation=='HighwayDnn' else '') + \
-                                    ('_dot_combine' if FLAGS.use_dot_combine else '')
+                                    ('_dot_combine' if FLAGS.use_dot_combine else '') + ('_tied_embs' if FLAGS.tied_embeddings_transforms else '')
 
 
 # do a tsne vizualization on how close speakers are in the embedded space on average
