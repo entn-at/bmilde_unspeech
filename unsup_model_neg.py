@@ -19,6 +19,8 @@ import itertools
 import pylab as plt
 import resnet_v2
 
+from numpy.core.umath_tests import inner1d
+
 from sklearn.metrics import accuracy_score
 
 from sklearn.manifold import TSNE
@@ -135,6 +137,11 @@ FLAGS = tf.flags.FLAGS
 training_data = {}
 #TODO load this correctly. Format: dict, spk -> list utt ids
 spk2utt_data = {}
+
+
+#https://stackoverflow.com/questions/3985619/how-to-calculate-a-logistic-sigmoid-function-in-python
+def sigmoid(x):  
+    return np.exp(-np.logaddexp(0, -x))
 
 def get_FLAGS_params_as_str():
     params_str = ''
@@ -982,14 +989,24 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                                 print('fbank factor:', (abs(input_signal.min()) + abs(input_signal.max())) / 2.0 )
                                 
                                 if FLAGS.generate_fbank_segmentation:
-                                    segmentation_feat_1 = np.dot(feat[:-FLAGS.window_length], feat_neg[FLAGS.window_length:])
+                                    segmentation_feat_1 = inner1d(feat[:-FLAGS.window_length], feat_neg[FLAGS.window_length:])
+                                    segmentation_feat_2 = inner1d(feat[:-FLAGS.window_length*2], feat_neg[FLAGS.window_length*2:])
                                     
-                                    f, (ax1, ax2) = plt.subplots(2, 1, sharex=True)
+                                    print(segmentation_feat_1)
                                     
-                                    ax1.xaxis.set_ticks_position('bottom')                        
-                                    ax1.imshow(input_signal.T, origin='lower', interpolation='nearest', aspect='equal')
-                                    
-                                    ax2.plot(range(len(input_signal)), np.log1p(segmentation_feat_1))
+                                    if debug_visualize:
+                                        f, (ax1, ax2, ax3) = plt.subplots(3, 1, sharex=True)
+                                        
+                                        ax1.xaxis.set_ticks_position('bottom')                        
+                                        ax1.imshow(input_signal.T, origin='lower', interpolation='nearest', aspect='equal')
+                                        
+                                        segmentation_feat_1_full = np.concatenate((np.zeros(FLAGS.window_length), sigmoid(segmentation_feat_1)))
+                                        segmentation_feat_2_full = np.concatenate((np.zeros(FLAGS.window_length*2), sigmoid(segmentation_feat_2)))
+                                        
+                                        print(segmentation_feat_1_full)
+                                        
+                                        ax2.plot(range(len(segmentation_feat_1_full)), segmentation_feat_1_full )
+                                        ax3.plot(range(len(segmentation_feat_2_full)), segmentation_feat_2_full )
                                 
                                 if debug_visualize:                            
                                     viz_feat_rep(input_signal, feat, feat_neg)
