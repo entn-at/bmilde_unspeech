@@ -613,6 +613,14 @@ class UnsupSeech(object):
                             print('pool shape after Resnet_v2_50 block:', pooled.get_shape())
                             print('is_training: ', is_training)
 
+
+                        if FLAGS.embedding_transformation == "Resnet_v2_101":
+                            with slim.arg_scope(resnet_v2.resnet_arg_scope()):
+                                pooled, self.end_points = resnet_v2.resnet_v2_101(pooled, is_training=True if force_resnet_istraining else is_training , spatial_squeeze=True, global_pool=True, num_classes=self.fc_size)
+                            needs_flattening = False
+                            print('pool shape after Resnet_v2_101 block:', pooled.get_shape())
+                            print('is_training: ', is_training)
+
                         if FLAGS.embedding_transformation == "Resnet_v2_50_small_flat":
                             with slim.arg_scope(resnet_v2.resnet_arg_scope()):
                                 pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=True if force_resnet_istraining else is_training, spatial_squeeze=False, global_pool=False, num_classes=self.fc_size)
