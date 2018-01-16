@@ -6,7 +6,9 @@ Created on Thu Aug 31 14:36:53 2017
 @author: Benjamin Milde
 """
 
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, DBSCAN
+from sklearn import preprocessing
+
 import numpy as np
 import utils
 
@@ -16,7 +18,7 @@ def feats2sumlen(feats):
         sumlen += len(feat)
     return sumlen
 
-def cluster(n_clusters, wav_files, ark_file, hopping_size, window_size, subsample, n_jobs=10):
+def cluster_phn(n_clusters, wav_files, ark_file, hopping_size, window_size, subsample, n_jobs=10):
     
     feats = utils.readArk(ark_file)
     
@@ -38,6 +40,35 @@ def cluster(n_clusters, wav_files, ark_file, hopping_size, window_size, subsampl
    
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_jobs=n_jobs).fit(feats_flat)
     kmeans.labels_
+
+
+def cluster_speaker(ark_file, dbscan_eps=0.5, dbscan_min_samples=2, utt_2_spk = None):
+    
+    uttids, feats = utils.readArk(ark_file)
+    
+    feats = np.vstack(feats)
+    
+    print('feats shape:', feats.shape)
+    print()
+    
+    ground_truth_utt_2_spk, ground_truth_utt_2_spk_int = None,None
+    
+    if utt_2_spk is not None:
+        ground_truth_utt_2_spk = [utt_2_spk[utt_id] for utt_id in uttids]
+        
+        le = preprocessing.LabelEncoder()
+        le.fit(ground_truth_utt_2_spk)
+        
+        ground_truth_utt_2_spk_int = le.transform(ground_truth_utt_2_spk)
+        
+        print("Ground truth speaker classes available:")
+    
+    dbscan_algo = DBSCAN(eps=dbscan_eps, min_samples=dbscan_min_samples, n_jobs=10)
+    
+    clustering = dbscan_algo.fit_predict(feats)
+    
+    print('Numpy bincount:', np.bincount(clustering))
+    
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='')

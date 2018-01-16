@@ -6,6 +6,9 @@ Created on Thu Dec 14 16:10:24 2017
 @author: milde
 """
 
+from __future__ import division, print_function, unicode_literals
+from builtins import bytes, chr, int, str
+
 import faiss
 import numpy as np
 import argparse
@@ -37,19 +40,32 @@ def index_train(feat_filename, index_filename, index_type="IVF1024,Flat"):
             pos += 1
             
     complete_feats = np.concatenate(feats, axis=0)
-    
+
+    print('complete_feats:', complete_feats)
+
+    print('complete_feats.min():', complete_feats.min())
+    print('complete_feats.max():', complete_feats.max())
+    print('complete_feats.sum()', complete_feats.sum())
+
     print('Going to index features of shape:',complete_feats.shape)
     
-    index = faiss.index_factory(complete_feats[0].shape[1], index_type)
+    index = faiss.index_factory(complete_feats.shape[1], index_type.encode("ascii"))
     
     index.train(complete_feats)
-    
+    index.add(complete_feats)
+
+    print('is_trained:',index.is_trained)
+    print('ntotal:',index.ntotal)
+
     print('Indexing finished.')
     
     search_vec_index =  100
     search_vec = complete_feats[search_vec_index]
-    
-    D, I =  index.search(search_vec, 10)
+    search_vec = search_vec.reshape((1,len(search_vec)))
+
+    print("Shape of search_vec:", search_vec.shape)
+
+    D, I =  index.search(search_vec, 50)
     
     print("Neighboors of ", search_vec_index)
     
@@ -81,7 +97,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     if args.mode=='train':
-        index_train(args.featfile, args.index, args.window_size, args.indextype)
+        index_train(args.featfile, args.index, args.index_type)
     elif args.mode=='featshow':
         index_load(args.featfile, args.index)
     else:

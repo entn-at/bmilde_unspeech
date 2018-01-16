@@ -72,7 +72,7 @@ def visualize_stats(feat_filename, max_feats, abs_feats=True, reverse_sort=True)
     plt.matshow([finalsum_sorted])
     plt.show()
     
-def visualize_kaldi_bin_feats(feat_filename, max_frames, num_feat=0, phn_file='', phn_offset=5, wav_file='', do_tsne=False):
+def visualize_kaldi_bin_feats(feat_filename, max_frames, num_feat=8, phn_file='', phn_offset=5, wav_file='', do_tsne=False):
     feats, utt_ids = kaldi_io.readArk(feat_filename , limit=10)
     
     print(feats, utt_ids)
@@ -86,7 +86,7 @@ def visualize_kaldi_bin_feats(feat_filename, max_frames, num_feat=0, phn_file=''
     print('sum vector:')
     print(np.sum(feats[num_feat], axis=1))
 
-    print(feats[0].shape)
+    print(feats[num_feat].shape)
 
     if phn_file == '':
         plt.matshow(feats[num_feat][:max_frames].T)  
@@ -117,12 +117,14 @@ if __name__ == '__main__':
     parser.add_argument('-i', '--input_featfile', dest='featfile', help='The feature file to visualize.', type=str, default = 
                         #'/Users/milde/inspect/feats_transVgg16big_win50_neg_samples4_lcontexts2_rcontexts2_flts40_embsize100_fc_size512_dropout_keep0.9_l2_reg0.0005_dot_combine/dev/feats.ark')
                         #'/Users/milde/inspect/feats_transVgg16big_win50_neg_samples4_lcontexts2_rcontexts2_flts40_embsize100_fc_size1024_dropout_keep0.9_batchnorm_bndecay0.95_l2_reg0.0005_dot_combine/dev/feats.ark')      
-                        '/Users/milde/inspect/kaldi_train/feats.normalized.ark')
+                        #'/Users/milde/inspect/kaldi_train/feats.normalized.ark')
                         #'/Users/milde/inspect/feats_transVgg16big_win50_neg_samples4_lcontexts2_rcontexts2_flts40_embsize100_fc_size1024_unit_norm_var_dropout_keep0.9_batchnorm_bndecay0.999_l2_reg0.0005_dot_combine/dev/feats.ark')
+                        'feats_vgg.ark')
     parser.add_argument('-f', '--format', dest='format', help='Format of the feature file (raw,kaldi_ark)', type=str, default = 'kaldi_ark')
-    parser.add_argument('-m', '--max_frames', dest='max_frames', help='Maximum frames', type=int, default = 10000)
+    parser.add_argument('-m', '--max_frames', dest='max_frames', help='Maximum frames', type=int, default = 200)
+    parser.add_argument('-n', '--num_feat', dest='num_feat', help='feat file to visualize', type=int, default = 0)
     parser.add_argument('-p', '--phn_file', dest='phn_file', help='Phoneme annotation file', type=str, default = '')
-    parser.add_argument('--mode', dest='mode', help='(featshow|stats)', type=str, default = 'stats')
+    parser.add_argument('--mode', dest='mode', help='(featshow|stats)', type=str, default = 'featshow')
 
 
     args = parser.parse_args()
@@ -130,7 +132,7 @@ if __name__ == '__main__':
     if args.mode=='stats':
         visualize_stats(args.featfile, args.max_frames)
     elif args.mode=='featshow':
-        visualize_kaldi_bin_feats(args.featfile, args.max_frames, phn_file= args.phn_file)
+        visualize_kaldi_bin_feats(args.featfile, args.max_frames, phn_file= args.phn_file, num_feat=args.num_feat)
     else:
         print("mode not supported.")
         #visualize_stats(args.featfile, args.max_frames)
