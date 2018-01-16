@@ -48,8 +48,12 @@ tf.flags.DEFINE_boolean("generate_kaldi_output_feats", False, "Whether to write 
 tf.flags.DEFINE_string("output_kaldi_ark", "output_kaldi.ark" , "Output file for Kaldi ark file")
 tf.flags.DEFINE_boolean("generate_challenge_output_feats", False, "Whether to write out a feature file in the unsupervise challenge format (containing all utterances), requires a trained model")
 
-tf.flags.DEFINE_integer("genfeat_combine_contexts", False, "True if positive and negative contexts should be combined. Doubles the unspeech representation size to 2x embed size.")
-tf.flags.DEFINE_integer("genfeat_combine_fbank", False, "True if fbank and unspeech representation should be combined.")
+tf.flags.DEFINE_boolean("genfeat_combine_contexts", False, "True if positive and negative contexts should be combined. Doubles the unspeech representation size to 2x embed size.")
+tf.flags.DEFINE_boolean("genfeat_combine_fbank", False, "True if fbank and unspeech representation should be combined.")
+tf.flags.DEFINE_boolean("genfeat_boost", False, "Boost the values of the genearted feature output with a heuristic.")
+
+tf.flags.DEFINE_boolean("generate_fbank_segmentation", False, "Generate a segmentation feature in the output representation (needs use_dot_combine at the moment)")
+tf.flags.DEFINE_boolean("generate_speaker_vectors", False, "Generate a segmentation feature in the output representation (needs use_dot_combine at the moment)")
 
 tf.flags.DEFINE_integer("hop_size", 1,"The hopsize over the input features while genearting output features.")
 tf.flags.DEFINE_integer("genfeat_hopsize", 1, "Hop size (in samples if end-to-end) for the feature generation.")
@@ -98,8 +102,6 @@ tf.flags.DEFINE_boolean("test_perf", True, "When generating features, test accur
 tf.flags.DEFINE_boolean("debug_visualize", False , "Visualize the generated features.")
 tf.flags.DEFINE_boolean("debug_visualize_batch", False , "Visualize the generated batches.")
 
-tf.flags.DEFINE_boolean("generate_fbank_segmentation", False, "Generate a segmentation feature in the output representation (needs use_dot_combine at the moment)")
-tf.flags.DEFINE_boolean("generate_speaker_vectors", False, "Generate a segmentation feature in the output representation (needs use_dot_combine at the moment)")
 
 
 tf.flags.DEFINE_integer("batch_size", 32, "Batch Size (default: 64)")
@@ -1032,7 +1034,10 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                                     print('input signal:',len(input_signal))
                                     print('feat:',len(feat))
                                     # feat = np.hstack([input_signal_orig, feat*feat_factor, feat_neg*feat_neg_factor])
-                                    feat = np.hstack([feat*feat_factor, feat_neg*feat_neg_factor])
+                                    if FLAGS.genfeat_boost:
+                                        feat = np.hstack([feat*feat_factor, feat_neg*feat_neg_factor])
+                                    else:
+                                        feat = np.hstack([feat, feat_neg])
                                     
                                     if debug_visualize:
                                         viz_feat_rep(input_signal, feat , None)
