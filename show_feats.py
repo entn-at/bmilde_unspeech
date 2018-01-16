@@ -117,6 +117,8 @@ if __name__ == '__main__':
     parser.add_argument('-i', '--input_featfile', dest='featfile', help='The feature file to visualize.', type=str, default = 
                         #'/Users/milde/inspect/feats_transVgg16big_win50_neg_samples4_lcontexts2_rcontexts2_flts40_embsize100_fc_size512_dropout_keep0.9_l2_reg0.0005_dot_combine/dev/feats.ark')
                         #'/Users/milde/inspect/feats_transVgg16big_win50_neg_samples4_lcontexts2_rcontexts2_flts40_embsize100_fc_size1024_dropout_keep0.9_batchnorm_bndecay0.95_l2_reg0.0005_dot_combine/dev/feats.ark')      
+                        #'/Users/milde/inspect/kaldi_train/feats.normalized.ark')
+                        #'/Users/milde/inspect/feats_transVgg16big_win50_neg_samples4_lcontexts2_rcontexts2_flts40_embsize100_fc_size1024_unit_norm_var_dropout_keep0.9_batchnorm_bndecay0.999_l2_reg0.0005_dot_combine/dev/feats.ark')
                         'feats_vgg.ark')
     parser.add_argument('-f', '--format', dest='format', help='Format of the feature file (raw,kaldi_ark)', type=str, default = 'kaldi_ark')
     parser.add_argument('-m', '--max_frames', dest='max_frames', help='Maximum frames', type=int, default = 200)
