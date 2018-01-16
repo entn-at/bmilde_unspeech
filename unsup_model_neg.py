@@ -48,8 +48,8 @@ tf.flags.DEFINE_boolean("generate_kaldi_output_feats", False, "Whether to write 
 tf.flags.DEFINE_string("output_kaldi_ark", "output_kaldi.ark" , "Output file for Kaldi ark file")
 tf.flags.DEFINE_boolean("generate_challenge_output_feats", False, "Whether to write out a feature file in the unsupervise challenge format (containing all utterances), requires a trained model")
 
-tf.flags.DEFINE_integer("genfeat_combine_contexts", True, "True if positive and negative contexts should be combined. Doubles the unspeech representation size to 2x embed size.")
-tf.flags.DEFINE_integer("genfeat_combine_fbank", True, "True if fbank and unspeech representation should be combined.")
+tf.flags.DEFINE_integer("genfeat_combine_contexts", False, "True if positive and negative contexts should be combined. Doubles the unspeech representation size to 2x embed size.")
+tf.flags.DEFINE_integer("genfeat_combine_fbank", False, "True if fbank and unspeech representation should be combined.")
 
 tf.flags.DEFINE_integer("hop_size", 1,"The hopsize over the input features while genearting output features.")
 tf.flags.DEFINE_integer("genfeat_hopsize", 1, "Hop size (in samples if end-to-end) for the feature generation.")
@@ -99,6 +99,8 @@ tf.flags.DEFINE_boolean("debug_visualize", False , "Visualize the generated feat
 tf.flags.DEFINE_boolean("debug_visualize_batch", False , "Visualize the generated batches.")
 
 tf.flags.DEFINE_boolean("generate_fbank_segmentation", False, "Generate a segmentation feature in the output representation (needs use_dot_combine at the moment)")
+tf.flags.DEFINE_boolean("generate_speaker_vectors", False, "Generate a segmentation feature in the output representation (needs use_dot_combine at the moment)")
+
 
 tf.flags.DEFINE_integer("batch_size", 32, "Batch Size (default: 64)")
 tf.flags.DEFINE_boolean("batch_normalization", False, "Whether to use batch normalization.")
@@ -1036,7 +1038,11 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                                         viz_feat_rep(input_signal, feat , None)
                                         if len(input_signal) > 200:
                                             viz_feat_rep(input_signal_small, feat[100:200] , None)
-                                    
+                                
+                                if FLAGS.generate_speaker_vectors:
+                                    # generate the average vector of the whole sequence (mean average over inner dimension)
+                                    # we save the vector as 1 x n matrix (adding a bogus dim) so that we can save it in Kaldi format
+                                    feat = np.expand_dims(feat.mean(0), axis=0)
                             else:
                                 print("Can't apply rolling window, shape not supported:", input_signal.shape)
 
