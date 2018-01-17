@@ -46,8 +46,8 @@ tf.flags.DEFINE_boolean("generate_kaldi_output_feats", False, "Whether to write 
 tf.flags.DEFINE_string("output_kaldi_ark", "output_kaldi.ark" , "Output file for Kaldi ark file")
 tf.flags.DEFINE_boolean("generate_challenge_output_feats", False, "Whether to write out a feature file in the unsupervise challenge format (containing all utterances), requires a trained model")
 
-tf.flags.DEFINE_integer("genfeat_combine_contexts", True, "True if positive and negative contexts should be combined. Doubles the unspeech representation size to 2x embed size.")
-tf.flags.DEFINE_integer("genfeat_combine_fbank", True, "True if fbank and unspeech representation should be combined.")
+tf.flags.DEFINE_integer("genfeat_combine_contexts", False, "True if positive and negative contexts should be combined. Doubles the unspeech representation size to 2x embed size.")
+tf.flags.DEFINE_integer("genfeat_combine_fbank", False, "True if fbank and unspeech representation should be combined.")
 
 tf.flags.DEFINE_integer("hop_size", 1,"The hopsize over the input features while genearting output features.")
 tf.flags.DEFINE_integer("genfeat_hopsize", 1, "Hop size (in samples if end-to-end) for the feature generation.")
@@ -359,7 +359,7 @@ def get_batch_k_samples(idlist, window_length, window_neg_length, spk2utt=None, 
                         window_batch.append(window)
                         window_neg_batch.append(window_neg)
                     else:
-                        print('Warning, window size not correct in get_batch_k_samples:', 'shape(w):', window.shape, 'shape(neg_w):' ,window_neg.shape, '. I will ignore this sample.')
+                        print('[true sample] Warning, window size not correct in get_batch_k_samples:', 'shape(w):', window.shape, 'shape(neg_w):' ,window_neg.shape, '. I will ignore this sample.')
         else:
             
             if debug:
@@ -376,7 +376,7 @@ def get_batch_k_samples(idlist, window_length, window_neg_length, spk2utt=None, 
                 window_batch.append(window)
                 window_neg_batch.append(window_neg)
             else:
-                print('Warning, window size not correct in get_batch_k_samples:', 'shape(w):', window.shape, 'shape(neg_w):' ,window_neg.shape, '. I will ignore this sample.')
+                print('[false sample] Warning, window size not correct in get_batch_k_samples:', 'shape(w):', window.shape, 'shape(neg_w):' ,window_neg.shape, '. I will ignore this sample.')
 
     labels = np.asarray(labels).reshape(-1,1)
 
@@ -733,6 +733,7 @@ def get_model_flags_param_short():
                                     '_fc_size' + str(FLAGS.fc_size) + ('_unit_norm_var' if FLAGS.unit_normalize_var else '') + \
                                     '_dropout_keep' + str(FLAGS.dropout_keep_prob) + ('_batchnorm_bndecay' + str(FLAGS.batch_normalization_decay) if FLAGS.batch_normalization else '') + '_l2_reg' + str(FLAGS.l2_reg) + \
                                     ('_highwaydnn' + str(FLAGS.num_highway_layers) if FLAGS.embedding_transformation=='HighwayDnn' else '') + \
+                                    ('_featinput_' + FLAGS.filelist.split('/')[-1]) + \
                                     ('_dot_combine' if FLAGS.use_dot_combine else '') + ('_tied_embs' if FLAGS.tied_embeddings_transforms else '')
 
 
@@ -1010,6 +1011,7 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                                        viz_feat_rep(input_signal_small, feat_signal_small , feat_neg_signal_small)
                                        
                                 if FLAGS.genfeat_combine_contexts:
+                                    print('genfeat_combine_contexts enabled')
                                     print('input signal:',len(input_signal))
                                     print('feat:',len(feat))
                                     # feat = np.hstack([input_signal_orig, feat*feat_factor, feat_neg*feat_neg_factor])
@@ -1019,7 +1021,8 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                                         viz_feat_rep(input_signal, feat , None)
                                         if len(input_signal) > 200:
                                             viz_feat_rep(input_signal_small, feat[100:200] , None)
-                                    
+                                else:
+                                    feat = feat*feat_factor
                             else:
                                 print("Can't apply rolling window, shape not supported:", input_signal.shape)
 
