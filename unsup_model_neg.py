@@ -19,6 +19,8 @@ import itertools
 import pylab as plt
 import resnet_v2
 
+from numpy.core.umath_tests import inner1d
+
 from sklearn.metrics import accuracy_score
 
 from sklearn.manifold import TSNE
@@ -46,8 +48,12 @@ tf.flags.DEFINE_boolean("generate_kaldi_output_feats", False, "Whether to write 
 tf.flags.DEFINE_string("output_kaldi_ark", "output_kaldi.ark" , "Output file for Kaldi ark file")
 tf.flags.DEFINE_boolean("generate_challenge_output_feats", False, "Whether to write out a feature file in the unsupervise challenge format (containing all utterances), requires a trained model")
 
-tf.flags.DEFINE_integer("genfeat_combine_contexts", False, "True if positive and negative contexts should be combined. Doubles the unspeech representation size to 2x embed size.")
-tf.flags.DEFINE_integer("genfeat_combine_fbank", False, "True if fbank and unspeech representation should be combined.")
+tf.flags.DEFINE_boolean("genfeat_combine_contexts", False, "True if positive and negative contexts should be combined. Doubles the unspeech representation size to 2x embed size.")
+tf.flags.DEFINE_boolean("genfeat_combine_fbank", False, "True if fbank and unspeech representation should be combined.")
+tf.flags.DEFINE_boolean("genfeat_boost", False, "Boost the values of the genearted feature output with a heuristic.")
+
+tf.flags.DEFINE_boolean("generate_fbank_segmentation", False, "Generate a segmentation feature in the output representation (needs use_dot_combine at the moment)")
+tf.flags.DEFINE_boolean("generate_speaker_vectors", False, "Generate a segmentation feature in the output representation (needs use_dot_combine at the moment)")
 
 tf.flags.DEFINE_integer("hop_size", 1,"The hopsize over the input features while genearting output features.")
 tf.flags.DEFINE_integer("genfeat_hopsize", 1, "Hop size (in samples if end-to-end) for the feature generation.")
@@ -96,7 +102,7 @@ tf.flags.DEFINE_boolean("test_perf", True, "When generating features, test accur
 tf.flags.DEFINE_boolean("debug_visualize", False , "Visualize the generated features.")
 tf.flags.DEFINE_boolean("debug_visualize_batch", False , "Visualize the generated batches.")
 
-tf.flags.DEFINE_boolean("generate_fbank_segmentation", False, "Generate a segmentation feature in the output representation (needs use_dot_combine at the moment)")
+
 
 tf.flags.DEFINE_integer("batch_size", 32, "Batch Size (default: 64)")
 tf.flags.DEFINE_boolean("batch_normalization", False, "Whether to use batch normalization.")
@@ -135,6 +141,11 @@ FLAGS = tf.flags.FLAGS
 training_data = {}
 #TODO load this correctly. Format: dict, spk -> list utt ids
 spk2utt_data = {}
+
+
+#https://stackoverflow.com/questions/3985619/how-to-calculate-a-logistic-sigmoid-function-in-python
+def sigmoid(x):  
+    return np.exp(-np.logaddexp(0, -x))
 
 def get_FLAGS_params_as_str():
     params_str = ''
@@ -991,14 +1002,24 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                                 print('fbank factor:', (abs(input_signal.min()) + abs(input_signal.max())) / 2.0 )
                                 
                                 if FLAGS.generate_fbank_segmentation:
-                                    segmentation_feat_1 = np.dot(feat[:-FLAGS.window_length], feat_neg[FLAGS.window_length:])
+                                    segmentation_feat_1 = inner1d(feat[:-FLAGS.window_length], feat_neg[FLAGS.window_length:])
+                                    segmentation_feat_2 = inner1d(feat[:-FLAGS.window_length*2], feat_neg[FLAGS.window_length*2:])
                                     
-                                    f, (ax1, ax2) = plt.subplots(2, 1, sharex=True)
+                                    print(segmentation_feat_1)
                                     
-                                    ax1.xaxis.set_ticks_position('bottom')                        
-                                    ax1.imshow(input_signal.T, origin='lower', interpolation='nearest', aspect='equal')
-                                    
-                                    ax2.plot(range(len(input_signal)), np.log1p(segmentation_feat_1))
+                                    if debug_visualize:
+                                        f, (ax1, ax2, ax3) = plt.subplots(3, 1, sharex=True)
+                                        
+                                        ax1.xaxis.set_ticks_position('bottom')                        
+                                        ax1.imshow(input_signal.T, origin='lower', interpolation='nearest', aspect='equal')
+                                        
+                                        segmentation_feat_1_full = np.concatenate((np.zeros(FLAGS.window_length), sigmoid(segmentation_feat_1)))
+                                        segmentation_feat_2_full = np.concatenate((np.zeros(FLAGS.window_length*2), sigmoid(segmentation_feat_2)))
+                                        
+                                        print(segmentation_feat_1_full)
+                                        
+                                        ax2.plot(range(len(segmentation_feat_1_full)), segmentation_feat_1_full )
+                                        ax3.plot(range(len(segmentation_feat_2_full)), segmentation_feat_2_full )
                                 
                                 if debug_visualize:                            
                                     viz_feat_rep(input_signal, feat, feat_neg)
@@ -1015,14 +1036,23 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                                     print('input signal:',len(input_signal))
                                     print('feat:',len(feat))
                                     # feat = np.hstack([input_signal_orig, feat*feat_factor, feat_neg*feat_neg_factor])
-                                    feat = np.hstack([feat*feat_factor, feat_neg*feat_neg_factor])
+                                    if FLAGS.genfeat_boost:
+                                        feat = np.hstack([feat*feat_factor, feat_neg*feat_neg_factor])
+                                    else:
+                                        feat = np.hstack([feat, feat_neg])
                                     
                                     if debug_visualize:
                                         viz_feat_rep(input_signal, feat , None)
                                         if len(input_signal) > 200:
                                             viz_feat_rep(input_signal_small, feat[100:200] , None)
                                 else:
-                                    feat = feat*feat_factor
+                                    if FLAGS.genfeat_boost:
+                                        feat = feat*feat_factor
+                                
+                                if FLAGS.generate_speaker_vectors:
+                                    # generate the average vector of the whole sequence (mean average over inner dimension)
+                                    # we save the vector as 1 x n matrix (adding a bogus dim) so that we can save it in Kaldi format
+                                    feat = np.expand_dims(feat.mean(0), axis=0)
                             else:
                                 print("Can't apply rolling window, shape not supported:", input_signal.shape)
 
