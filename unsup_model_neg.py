@@ -17,7 +17,7 @@ import math
 import kaldi_io
 import itertools
 import pylab as plt
-import resnet_v2
+import resnet_v2 
 
 from numpy.core.umath_tests import inner1d
 
@@ -26,6 +26,7 @@ from sklearn.metrics import accuracy_score
 from sklearn.manifold import TSNE
 
 from sklearn.utils import shuffle
+from sklearn.cluster import KMeans, DBSCAN
 
 #from tensorflow.python.ops import control_flow_ops
 
@@ -96,7 +97,7 @@ tf.flags.DEFINE_boolean("unit_normalize", False, "Before computing the dot produ
 tf.flags.DEFINE_boolean("unit_normalize_var", False, "Use a trainable var to scale the output of the network.")
 
 tf.flags.DEFINE_integer("negative_samples", 4, "How many negative samples to generate.")
-tf.flags.DEFINE_integer("test_perf_samples", 1000, "How many batches to generate for testing accuracy.")
+tf.flags.DEFINE_integer("test_perf_samples", 100, "How many batches to generate for testing accuracy.")
 
 tf.flags.DEFINE_boolean("test_perf", True, "When generating features, test accuracy by randomly sampling batches and compare the prediction quality of the model.")
 tf.flags.DEFINE_boolean("debug_visualize", False , "Visualize the generated features.")
@@ -297,32 +298,32 @@ def highway_layer(x, size, activation, carry_bias=-1.0):
 
 def get_random_audiosample(idlist, idlist_size, window_size, random_id=None, spk_id=None, spk2utt=None, spk2utt_keys= None , num_speakers = 0, spk2len=None, debug=False):
 
-    # sample over a random file, if no specific one was specified
-    if spk_id is None and random_id is None:
-        random_id_num = int(math.floor(np.random.random_sample() * float(idlist_size)))
-        # if spk2utt is supplied, we sample a speaker first, then a utterance id
-        if spk2utt is not None:
-            random_spk_num = int(math.floor(np.random.random_sample() * float(num_speakers)))
-            spk_id = spk2utt_keys[random_spk_num]
-            random_id_num = int(math.floor(np.random.random_sample() * float(spk2len[spk_id])))
-            random_id = spk2utt[spk_id][random_id_num]
+    if random_id is None:
+        # sample over a random file, if no specific one was specified
+        if spk_id is None and random_id is None:
+            random_id_num = int(math.floor(np.random.random_sample() * float(idlist_size)))
+            # if spk2utt is supplied, we sample a speaker first, then a utterance id
+            if spk2utt is not None:
+                random_spk_num = int(math.floor(np.random.random_sample() * float(num_speakers)))
+                spk_id = spk2utt_keys[random_spk_num]
+                random_id_num = int(math.floor(np.random.random_sample() * float(spk2len[spk_id])))
+                random_id = spk2utt[spk_id][random_id_num]
+                if debug:
+                    print('[get_random_audiosample] Selecting sample:', 'speaker:',spk_id, 'uttid:', random_id)
+    
+            else:
+                random_id = idlist[random_id_num]
+        else:
+            if spk_id is not None:
+                if debug:
+                    print(spk2utt[spk_id],spk2len[spk_id])
+                random_id_num = int(math.floor(np.random.random_sample() * float(spk2len[spk_id])))
+                random_id = spk2utt[spk_id][random_id_num]  
+            else:
+                random_id = idlist[random_id_num]
             if debug:
                 print('[get_random_audiosample] Selecting sample:', 'speaker:',spk_id, 'uttid:', random_id)
-
-        else:
-            random_id = idlist[random_id_num]
-    else:
-        if spk_id is not None:
-            if debug:
-                print(spk2utt[spk_id],spk2len[spk_id])
-            random_id_num = int(math.floor(np.random.random_sample() * float(spk2len[spk_id])))
-            random_id = spk2utt[spk_id][random_id_num]  
-        else:
-            random_id = idlist[random_id_num]
-        if debug:
-            print('[get_random_audiosample] Selecting sample:', 'speaker:',spk_id, 'uttid:', random_id)
-
-        
+      
     audio_data = training_data[random_id]
     audio_len = audio_data.shape[0] - window_size
     random_pos_num = int(math.floor(np.random.random_sample() * audio_len))
@@ -749,7 +750,7 @@ def get_model_flags_param_short():
 
 
 # do a tsne vizualization on how close speakers are in the embedded space on average
-def tnse_viz_speakers(utt_id_list, filelist, feats_outputfile, feats_format, hop_size):
+def tnse_viz_speakers(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, test_perf=False):
     filter_sizes = [int(x) for x in FLAGS.filter_sizes.split(',')]
     
     if spk2utt is None:
@@ -782,17 +783,47 @@ def tnse_viz_speakers(utt_id_list, filelist, feats_outputfile, feats_format, hop
                 
                 spk_repeats = 20
                 
+                window_size = FLAGS.window_length
+                
                 for spk_id in spk2utt_keys:
-                    for x in range(spk_repeats):
-                        print("Computing average for:", spk_id)
+                    for random_id in spk2utt[spk_id]:
+                    #for x in range(spk_repeats):
+                        print("Computing average for:", spk_id, random_id)
+                        #random_id_num = int(math.floor(np.random.random_sample() * float(spk2len[spk_id])))
+                        #random_id = spk2utt[spk_id][random_id_num]
+                        #print('random_id', random_id)
                         #random_spk_num = int(math.floor(np.random.random_sample() * float(num_speakers)))
                         #spk_id = spk2utt_keys[random_spk_num]
                         samples_feats = []
-                        for i in range(5):
-                            sample, _ = get_random_audiosample(utt_id_list, idlist_size, FLAGS.window_length, random_id=None, spk2utt=spk2utt, spk_id=spk_id, spk2utt_keys=spk2utt_keys, num_speakers=num_speakers, spk2len=spk2len)
-                            feat = model.gen_feat_batch(sess,[sample])
-                            
-                            samples_feats.append(feat[0])
+                        
+                        audio_data = training_data[random_id]
+                        audio_len = audio_data.shape[0] - window_size
+                        #random_pos_num = int(math.floor(np.random.random_sample() * audio_len))
+                        print("audio_data.shape[0] - window_size:", audio_len)
+                        
+                        samples = []
+                        
+                        #for i in range(audio_len):
+                        #    sample = audio_data[i:i+window_size]
+                        #    samples.append(sample)
+                       # 
+                        #samples_feats = model.gen_feat_batch(sess,samples)
+                        
+                        #for i in range(0, audio_len, int(audio_len/100 +1)):
+                        #    sample = np.array(audio_data[i:i+window_size])
+                        #    samples.append(sample)
+                       # 
+                        #feats = model.gen_feat_batch(sess,samples)
+                        
+                        for i in range(100):
+                            sample, _ = get_random_audiosample(utt_id_list, idlist_size, FLAGS.window_length, random_id=random_id, spk2utt=spk2utt, spk_id=spk_id, spk2utt_keys=spk2utt_keys, num_speakers=num_speakers, spk2len=spk2len)
+                            samples.append(sample)
+                        
+                        samples_feats = model.gen_feat_batch(sess,samples)
+                        
+                        #    feat = model.gen_feat_batch(sess,[sample])
+                        #    
+                        #    samples_feats.append(feat[0])
                         
                         spk_mean = np.mean(np.vstack(samples_feats), axis=0)
                         spk_means.append(spk_mean)
@@ -801,14 +832,21 @@ def tnse_viz_speakers(utt_id_list, filelist, feats_outputfile, feats_format, hop
                 spk_means = np.vstack(spk_means)
                 
                 print('Calculating TSNE:')
-                model = TSNE(n_components=2, random_state=0)
+                model = TSNE(n_components=2, random_state=0, metric='cosine')
     
+    
+                print('Calculating TSNE on ', len(spk_means), 'data points.')
                 tsne_data = model.fit_transform(spk_means)
                 
                 colormap = plt.cm.gist_ncar #nipy_spectral, Set1,Paired  
                 colorst = colormap(np.linspace(0, 0.9, num_speakers)) #[colormap(i) for i in np.linspace(0, 0.9, num_speakers)]  
                 
-                cs = [colorst[i//spk_repeats] for i in range(num_speakers*spk_repeats)]
+                cs = []
+                for i,spk_id in enumerate(spk2utt_keys):
+                    for random_id in spk2utt[spk_id]:
+                       cs += [colorst[i]]
+                #cs = [colorst[i//spk_repeats] for i in range(num_speakers*spk_repeats)]
+                
                 
                 print(tsne_data[:,0])
                 print(tsne_data[:,1])
@@ -979,17 +1017,24 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                             if len(input_signal.shape)==1:
                                 feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size))
                             elif len(input_signal.shape)==2:
-                                rolling_shape = (FLAGS.window_length, input_signal.shape[-1])
-                                print('shape:',rolling_shape)
                                 
-                                rolling_full_array = []
-                                for elem in utils.rolling_window_better(input_signal, rolling_shape).reshape(-1,rolling_shape[0],rolling_shape[1]):
-                                    #plt.matshow(elem)
-                                    #plt.show()
-                                    rolling_full_array.append(np.array(elem))
-                                #rolling_full_array = np.vstack(rolling_full_array)
-                                #print(rolling_full_array.shape)
-                                #feat = model.gen_feat_batch(sess, np.copy(utils.rolling_window_better(input_signal, rolling_shape).reshape(-1,rolling_shape[0],rolling_shape[1])))
+                                if input_signal.shape[0] > FLAGS.window_length:
+                                    rolling_shape = (FLAGS.window_length, input_signal.shape[-1])
+                                    print('shape:',rolling_shape)
+                                    
+                                    rolling_full_array = []
+                                    for elem in utils.rolling_window_better(input_signal, rolling_shape).reshape(-1,rolling_shape[0],rolling_shape[1]):
+                                        #plt.matshow(elem)
+                                        #plt.show()
+                                        rolling_full_array.append(np.array(elem))
+                                    #rolling_full_array = np.vstack(rolling_full_array)
+                                    #print(rolling_full_array.shape)
+                                    #feat = model.gen_feat_batch(sess, np.copy(utils.rolling_window_better(input_signal, rolling_shape).reshape(-1,rolling_shape[0],rolling_shape[1])))
+                                elif input_signal.shape[0] == FLAGS.window_length:
+                                    rolling_full_array = [input_signal]
+                                else:
+                                    #otherwise fill up with zeros to fit the window
+                                    rolling_full_array = [np.vstack((input_signal, [np.zeros_like(input_signal[-1])]*(FLAGS.window_length-input_signal.shape[0])))]
                                 
                                 print('length of tensorflow input features', len(rolling_full_array))
                                 
@@ -1333,6 +1378,6 @@ if __name__ == "__main__":
     if FLAGS.gen_feats:
         gen_feat(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers, test_perf=FLAGS.test_perf, debug_visualize=FLAGS.debug_visualize)
     elif FLAGS.tnse_viz_speakers:
-        tnse_viz_speakers(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize, test_perf=FLAGS.test_perf, debug_visualize=FLAGS.debug_visualize)
+        tnse_viz_speakers(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize, test_perf=FLAGS.test_perf)
     else:
         train(utt_id_list, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers)
