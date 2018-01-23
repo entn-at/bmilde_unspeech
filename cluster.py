@@ -18,7 +18,7 @@ import utils
 import kaldi_io
 import random
 
-from numpy.core.umath_tests import inner1d
+#from numpy.core.umath_tests import inner1d
 
 from scipy.spatial import distance
 
@@ -59,12 +59,19 @@ def cluster_phn(n_clusters, wav_files, ark_file, hopping_size, window_size, subs
 # assumes that 
 def pos_neg_dot_distance(a, b):
     half_index=int(a.shape[0] / 2)
-    return sigmoid(np.dot(a[:half_index],b[half_index:]))
+    return 1.0 - sigmoid(np.dot(a[:half_index],b[half_index:]))
 
 # assumes that 
 def pairwise_pos_neg_dot_distance(a, b):
     half_index=int(a.shape[0] / 2)
-    return sigmoid(np.dot(a[:half_index],b[half_index:])) + sigmoid(np.dot(b[:half_index],a[half_index:]))
+    return 1.0 - 0.5*(sigmoid(np.dot(a[:half_index],b[half_index:])) + sigmoid(np.dot(b[:half_index],a[half_index:])))
+
+def pairwise_normalize(a):
+    half_index=int(a.shape[0] / 2)
+    norm1 = np.linalg.norm(a[:half_index], ord=2)
+    norm2 = np.linalg.norm(a[half_index:], ord=2)
+    
+    return np.hstack([a[:half_index]/norm1, a[half_index:]/norm2])
 
 def cluster_speaker(ark_file, dbscan_eps=0.0005, dbscan_min_samples=3, utt_2_spk = None, tsne_viz=True, n_jobs=4, range_search=False):
     
@@ -72,7 +79,9 @@ def cluster_speaker(ark_file, dbscan_eps=0.0005, dbscan_min_samples=3, utt_2_spk
     
     print('feat[0] shape: ', feats[0].shape)
     
-    feats = np.vstack([feat[0] for feat in feats])
+    feats = np.vstack([feat[0] for utt,feat in zip(uttids,feats) if 'AlGore' not in utt])
+    #feats = np.vstack([pairwise_normalize(feat[0]) for feat in feats])
+    uttids = [utt for utt in uttids if 'AlGore' not in utt]
     
     print('feats shape:', feats.shape)
     print('feat[0] shape: ', feats[0].shape)
@@ -80,7 +89,7 @@ def cluster_speaker(ark_file, dbscan_eps=0.0005, dbscan_min_samples=3, utt_2_spk
     print('halfindex:', feats[0].shape[0] / 2)
     
     print('some distances:')
-    for a,b in [(random.randint(0, len(feats)), random.randint(0, len(feats))) for i in range(10)] + [(0,0)]:
+    for a,b in [(random.randint(0, len(feats)-1), random.randint(0, len(feats)-1)) for i in range(10)] + [(0,0)]:
         dst = distance.euclidean(feats[a],feats[b])
         print('euc dst:', a,b,'=',dst)
         dst = distance.cosine(feats[a],feats[b])
@@ -97,8 +106,8 @@ def cluster_speaker(ark_file, dbscan_eps=0.0005, dbscan_min_samples=3, utt_2_spk
         
     
         
-    for a in range(50):
-        for b in range(50):
+    for a in range(10):
+        for b in range(10):
             print('feats[a]:',feats[a])
             print('feats[b]:',feats[b])
             dst = pos_neg_dot_distance(feats[a],feats[b])
@@ -109,6 +118,8 @@ def cluster_speaker(ark_file, dbscan_eps=0.0005, dbscan_min_samples=3, utt_2_spk
     ground_truth_utt_2_spk, ground_truth_utt_2_spk_int = None,None
     
     if utt_2_spk is not None:
+        utt_2_spk = utils.loadUtt2Spk(utt_2_spk)
+        
         ground_truth_utt_2_spk = [utt_2_spk[utt_id] for utt_id in uttids]
         
         le = preprocessing.LabelEncoder()
@@ -122,18 +133,48 @@ def cluster_speaker(ark_file, dbscan_eps=0.0005, dbscan_min_samples=3, utt_2_spk
     
     print('Now running DBSCAN clustering.')
     
+    bestARI = 0.0
+    bestConf ={}
+    
     if range_search:
-        for dbscan_eps in [0.00005, 0.0005, 0.005, 0.05, 0.5, 5, 50, 500]:
-            for dbscan_min_samples in [1, 2, 3, 4, 5, 6, 7, 8, 10, 100]:
+        
+        eps_range = [x/100.0 for x in range(1,100)]
+        min_samples_range = [1, 2, 3, 4, 5, 6, 7, 8, 10, 20, 30, 50, 100]
+        
+        result_mat = np.zeros((len(eps_range), len(min_samples_range)))
+        
+        print('shape result mat:', result_mat.shape)
+        
+        for i_eps,dbscan_eps in enumerate(eps_range):
+            for i_min_samples, dbscan_min_samples in enumerate(min_samples_range):
                 
-                dbscan_algo = DBSCAN(eps=dbscan_eps, min_samples=dbscan_min_samples, metric=pairwise_pos_neg_dot_distance, n_jobs=1)
+                dbscan_algo = DBSCAN(eps=dbscan_eps, min_samples=dbscan_min_samples, metric=pos_neg_dot_distance, n_jobs=16)
                 clustering = dbscan_algo.fit(feats)
                 clustering_labels = list(clustering.labels_)
                 
                 print('dbscan_eps', dbscan_eps, 'dbscan_min_samples', dbscan_min_samples)
                 print('num clusters:', len(set(clustering_labels)))
+                
+                ARI = metrics.adjusted_rand_score(ground_truth_utt_2_spk_int, clustering_labels)
+                
+                result_mat[i_eps][i_min_samples] = float(ARI)
+                
+                print('ARI:', ARI)
+                
+                if ARI > bestARI:
+                    print('Found new best conf:', ARI)
+                    bestConf = {'eps': dbscan_eps,'min_samples': dbscan_min_samples }
+                    bestARI = ARI
+                    
+        plt.matshow(result_mat)
+        plt.show()
+        
+        np.save(ark_file + '.dbrangescan_cluster_ARI',  result_mat)
+                    
+    print('bestARI:', bestARI)
+    print('bestConf:',bestConf)
     
-    dbscan_algo = DBSCAN(eps=dbscan_eps, min_samples=dbscan_min_samples, metric=pairwise_pos_neg_dot_distance, n_jobs=1)
+    dbscan_algo = DBSCAN(eps=dbscan_eps, min_samples=dbscan_min_samples, metric=pos_neg_dot_distance, n_jobs=1)
     clustering = dbscan_algo.fit(feats)
     clustering_labels = list(clustering.labels_)
                 
@@ -145,39 +186,51 @@ def cluster_speaker(ark_file, dbscan_eps=0.0005, dbscan_min_samples=3, utt_2_spk
     
     if tsne_viz:
         print('Calculating TSNE:')
-        model = TSNE(n_components=2, random_state=0, metric='cosine')#pos_neg_dot_distance)
+        
+        model = TSNE(n_components=2, random_state=0, metric=pos_neg_dot_distance)
+        tsne_data = model.fit_transform(feats)
+        
+        #model = TSNE(n_components=2, random_state=0, metric='cosine')
+        #tsne_data = model.fit_transform([feat[100:] for feat in feats])
 
-        tsne_data = model.fit_transform(feats) #[feat[:100] for feat in feats])
-
-        num_speakers = max(clustering_labels)+2
+        if utt_2_spk is not None:
+            num_speakers = max(ground_truth_utt_2_spk_int) +1
+        else:
+            num_speakers = len(set(clustering_labels))
         
         colormap = plt.cm.gist_ncar #nipy_spectral, Set1,Paired  
         colorst = colormap(np.linspace(0, 0.9, num_speakers)) #[colormap(i) for i in np.linspace(0, 0.9, num_speakers)]  
         
-        cs = [colorst[clustering_labels[i]] for i in range(len(clustering_labels))]
+        if utt_2_spk is not None:
+            cs = [colorst[ground_truth_utt_2_spk_int[i]] for i in range(len(clustering_labels))]
+        else:
+            cs = [colorst[clustering_labels[i]] for i in range(len(clustering_labels))]
         
         print(tsne_data[:,0])
         print(tsne_data[:,1])
         
         plt.scatter(tsne_data[:,0], tsne_data[:,1], color=cs)
+        
+        for i in range(tsne_data.shape[0]):
+            plt.text(tsne_data[i,0], tsne_data[i,1], uttids[i], fontsize=8, color=cs[i])
 
         print('Now showing tsne plot:')
         plt.show()
     
     if utt_2_spk is not None:
-        ARI = metrics.adjusted_rand_score(ground_truth_utt_2_spk_int, clustering)
+        ARI = metrics.adjusted_rand_score(ground_truth_utt_2_spk_int, clustering_labels)
         print('ARI score:', ARI)
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('-n', '--n-clusters', dest='n_clusters', help='The number of clusters, if kmeans is used.', type=int, default = 42)
     parser.add_argument('-f', '--wav-files', dest='wav_files', help='Original wav files. Kaldi format file, uttid -> wavfile.', type=str, default = '')
-    parser.add_argument('-a', '--input-ark', dest='ark_file', help='Input ark with the computed features.', type=str, default = 'feats/feats_transResnet_v2_101_nsampling_same_spk_win64_neg_samples4_lcontexts2_rcontexts2_flts40_embsize100_fc_size512_unit_norm_var_dropout_keep0.9_l2_reg0.0005_dot_combine_tied_embs/dev/feats.ark')
+    parser.add_argument('-a', '--input-ark', dest='ark_file', help='Input ark with the computed features.', type=str, default = 'feats/feats_transVgg16big_nsampling_same_spk_win64_neg_samples4_lcontexts2_rcontexts2_flts40_embsize100_fc_size512_unit_norm_var_dropout_keep0.9_l2_reg0.0005_featinput_unnormalized.feats.ark_dot_combine_tied_embs/dev/feats.ark')
     parser.add_argument('-hs', '--hopping-size', dest='hopping_size', help='Hopping size, in ms.', type=int, default=-1)
     parser.add_argument('-w', '--window-size', dest='window_size', help='Window size, in ms.', type=int, default=-1)
     parser.add_argument('-s', '--subsampling', dest='subsample', help='Subsample the input corpus (probability to take input frame from 0.0 to 1.0). Set to 1.0 to take all the data', type=float, default=0.01)
     parser.add_argument('-r', '--sampling-rate', dest='samplingrate', help='Sampling rate of the corpus', type=int, default=16000)
-    parser.add_argument('--utt2spk', dest='utt2spk', help='Needed to compare speaker clusters and calculate scores.', type=str, default = None)
+    parser.add_argument('--utt2spk', dest='utt2spk', help='Needed to compare speaker clusters and calculate scores.', type=str, default = None) # 'feats/tedlium/dev/utt2spk')
     parser.add_argument('--mode', dest='mode', help='(cluster_speaker|cluster_phn)', type=str, default = 'cluster_speaker')
 
     args = parser.parse_args()
@@ -186,6 +239,6 @@ if __name__ == '__main__':
         cluster_phn(n_clusters=args.n_clusters, wav_files = args.wav_files, ark_file=args.ark_file, 
                     hopping_size=args.hopping_size, window_size=args.window_size, subsample=args.subsample, n_jobs=4)
     elif args.mode == 'cluster_speaker':
-        cluster_speaker(args.ark_file, dbscan_eps=0.5, dbscan_min_samples=5, utt_2_spk = args.utt2spk)
+        cluster_speaker(args.ark_file, dbscan_eps=0.2, dbscan_min_samples=3, utt_2_spk = args.utt2spk)
     else:
         print('mode:', args.mode, 'not supported.')
