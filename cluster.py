@@ -20,6 +20,13 @@ import utils
 import kaldi_io
 import random
 
+try:
+    import faiss
+    from gpu_dbscan import GpuDbscan
+    GpuDbscan_available = True
+except:
+    print("Warning could not import faiss, cannot use GPU clustering.")
+
 import tensorflow as tf
 
 #from numpy.core.umath_tests import inner1d
@@ -73,10 +80,6 @@ def cluster_rnn_phn(n_clusters, wav_files, ark_file, hopping_size, window_size, 
     count = tf.unsorted_segment_sum(ones, ids, 2)
     sums = tf.unsorted_segment_sum(x, ids, 2)
     mean = tf.divide(sums, count)
-    
-
-    
-    
 
 
 def cluster_phn(n_clusters, wav_files, ark_file, hopping_size, window_size, subsample, n_jobs=4):
@@ -103,7 +106,21 @@ def pairwise_normalize(a):
     
     return np.hstack([a[:half_index]/norm1, a[half_index:]/norm2])
 
-def cluster_speaker(ark_file, dbscan_eps=0.0005, dbscan_min_samples=3, utt_2_spk = None, output_utt_2_spk = None, tsne_viz=False, n_jobs=4, range_search=False):
+def cluster_dbscan_gpu(X, eps, min_samples):
+    d=X.shape[-1]
+    res = faiss.StandardGpuResources()
+    flat_config = faiss.GpuIndexFlatConfig()
+    flat_config.device = 0
+    print("Building faiss index, d=",d)
+    index = faiss.GpuIndexFlatIP(res, d, flat_config)
+    index.add(X)
+    print("Running dbscan.")
+    gd = GpuDbscan(X, gpu_index=index)
+    cluster_ids, core_point_flag, visited_flag = gd.gpu_dbscan(1, 10)
+
+    return cluster_ids
+
+def cluster_speaker(ark_file, dbscan_eps=0.0005, dbscan_min_samples=3, utt_2_spk = None, output_utt_2_spk = None, tsne_viz=False, n_jobs=4, range_search=False, use_gpu=True):
     
     print('Loading feats now:')
 
@@ -213,10 +230,13 @@ def cluster_speaker(ark_file, dbscan_eps=0.0005, dbscan_min_samples=3, utt_2_spk
     print('bestARI:', bestARI)
     print('bestConf:',bestConf)
     
-    #cluster_algo = DBSCAN(eps=dbscan_eps, min_samples=dbscan_min_samples, metric=pairwise_pos_neg_dot_distance, n_jobs=28)
-    cluster_algo = HDBSCAN(min_cluster_size=10, metric='euclidean', algorithm='best', core_dist_n_jobs=28)
-    clustering = cluster_algo.fit(feats)
-    clustering_labels = list(clustering.labels_)
+    if use_gpu:
+        clustering_labels = cluster_dbscan_gpu(feats, dbscan_eps, dbscan_min_samples)
+    else:
+        #cluster_algo = DBSCAN(eps=dbscan_eps, min_samples=dbscan_min_samples, metric=pairwise_pos_neg_dot_distance, n_jobs=28)
+        cluster_algo = HDBSCAN(min_cluster_size=10, metric='euclidean', algorithm='best', core_dist_n_jobs=28)
+        clustering = cluster_algo.fit(feats)
+        clustering_labels = list(clustering.labels_)
                 
     print('dbscan_eps', dbscan_eps, 'dbscan_min_samples', dbscan_min_samples)
     print('num clusters:', len(set(clustering_labels)))
@@ -281,8 +301,8 @@ if __name__ == '__main__':
     parser.add_argument('-w', '--window-size', dest='window_size', help='Window size, in ms.', type=int, default=-1)
     parser.add_argument('-s', '--subsampling', dest='subsample', help='Subsample the input corpus (probability to take input frame from 0.0 to 1.0). Set to 1.0 to take all the data', type=float, default=0.01)
     parser.add_argument('-r', '--sampling-rate', dest='samplingrate', help='Sampling rate of the corpus', type=int, default=16000)
-    parser.add_argument('--utt2spk', dest='utt2spk', help='Needed to compare speaker clusters and calculate scores.', type=str, default = 'feats/tedlium/train/utt2spk')
-    parser.add_argument('--output_utt2spk', dest='output_utt2spk', help='Where to store speaker output speaker clusters.', type=str, default = 'feats/tedlium/train/cluster_utt2spk')
+    parser.add_argument('--utt2spk', dest='utt2spk', help='Needed to compare speaker clusters and calculate scores.', type=str, default = 'feats/train/utt2spk')
+    parser.add_argument('--output_utt2spk', dest='output_utt2spk', help='Where to store speaker output speaker clusters.', type=str, default = 'feats/train/cluster_utt2spk')
     parser.add_argument('--mode', dest='mode', help='(cluster_speaker|cluster_phn)', type=str, default = 'cluster_speaker')
 
     args = parser.parse_args()
