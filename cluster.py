@@ -23,6 +23,13 @@ import kaldi_io
 import random
 import sys
 
+try:
+    import faiss
+    from gpu_dbscan import GpuDbscan
+    GpuDbscan_available = True
+except:
+    print("Warning could not import faiss, cannot use GPU clustering.")
+
 import tensorflow as tf
 
 #from numpy.core.umath_tests import inner1d
@@ -136,13 +143,26 @@ def pairwise_normalize(a):
     
     return np.hstack([a[:half_index]/norm1, a[half_index:]/norm2])
 
+def cluster_dbscan_gpu(X, eps, min_samples):
+    d=X.shape[-1]
+    res = faiss.StandardGpuResources()
+    flat_config = faiss.GpuIndexFlatConfig()
+    flat_config.device = 0
+    print("Building faiss index, d=",d)
+    index = faiss.GpuIndexFlatIP(res, d, flat_config)
+    index.add(X)
+    print("Running dbscan.")
+    gd = GpuDbscan(X, gpu_index=index)
+    cluster_ids, core_point_flag, visited_flag = gd.gpu_dbscan(1, 10)
+
+    return cluster_ids
+
+#def cluster_speaker(ark_file, dbscan_eps=0.0005, dbscan_min_samples=3, utt_2_spk = None, output_utt_2_spk = None, tsne_viz=False, n_jobs=4, range_search=False, use_gpu=True):
 def cluster_speaker(ark_file, half_index=-1, dbscan_eps=0.0005, dbscan_min_samples=3,     min_cluster_sizes_str = "5",
     min_samples_str = "3", utt_2_spk = None, output_utt_2_spk = None, fileset= 'dev', tsne_viz=False, n_jobs=4,
-    db_scan_range_search=False, hdb_scan_range_search=False, normalize=True, do_save_result=True):
-    
+    db_scan_range_search=False, hdb_scan_range_search=False, normalize=True, do_save_result=True, use_gpu=False):
 
-    postfix='_ivector'
-    
+    #postfix='_ivector'
     print('Loading feats now:')
 
     feats, uttids = kaldi_io.readArk(ark_file.replace('%set', fileset))
@@ -257,8 +277,22 @@ def cluster_speaker(ark_file, half_index=-1, dbscan_eps=0.0005, dbscan_min_sampl
         print('bestARI:', bestARI)
         print('bestConf:',bestConf)
     
-    #min_cluster_sizes = [2,3,4,5,6,7,8,9,10,11,12]
-    #min_samples = [2,3,4,5,6,7,8,9,10]
+#<<<<<<< HEAD
+#    #min_cluster_sizes = [2,3,4,5,6,7,8,9,10,11,12]
+#    #min_samples = [2,3,4,5,6,7,8,9,10]
+#=======
+#    if use_gpu:
+#        clustering_labels = cluster_dbscan_gpu(feats, dbscan_eps, dbscan_min_samples)
+#    else:
+#        #cluster_algo = DBSCAN(eps=dbscan_eps, min_samples=dbscan_min_samples, metric=pairwise_pos_neg_dot_distance, n_jobs=28)
+#        cluster_algo = HDBSCAN(min_cluster_size=10, metric='euclidean', algorithm='best', core_dist_n_jobs=28)
+#        clustering = cluster_algo.fit(feats)
+#        clustering_labels = list(clustering.labels_)
+#                
+#    print('dbscan_eps', dbscan_eps, 'dbscan_min_samples', dbscan_min_samples)
+#    print('num clusters:', len(set(clustering_labels)))
+#    print(clustering_labels)
+#>>>>>>> 3ae8c233f81b69d8a9ff183eaa939f8490155225
     
     min_cluster_sizes = [int(x) for x in min_cluster_sizes_str.split(',')]
     min_samples = [int(x) for x in min_samples_str.split(',')]
