@@ -18,6 +18,7 @@ import kaldi_io
 import itertools
 import pylab as plt
 import resnet_v2 
+import inception_resnet_v2
 
 from numpy.core.umath_tests import inner1d
 
@@ -36,7 +37,7 @@ if sys.version_info[0] == 3:
 tf.flags.DEFINE_string("filelist", "filelist.english.train", "Kaldi scp file if using kaldi feats, or for end-to-end learning a simple filelist, one wav file per line, optionally also an id (id wavfile per line).")
 tf.flags.DEFINE_string("spk2utt", "", "Optional, but required for per speaker negative sampling. ")
 tf.flags.DEFINE_boolean("end_to_end", False, "Use end-to-end learning (Input is 1D). Otherwise input is 2D like FBANK or MFCC features.")
-tf.flags.DEFINE_boolean("feat_size", 40, "Size of the features inner dimension (only used if not using end-to-end training).")
+tf.flags.DEFINE_integer("feat_size", 40, "Size of the features inner dimension (only used if not using end-to-end training).")
 
 tf.flags.DEFINE_boolean("debug", False, "Limits the filelist size and is more debug.")
 
@@ -407,7 +408,7 @@ class UnsupSeech(object):
     def create_training_graphs(self, create_new_train_dir=True, clip_norm=True, max_grad_norm=5.0):
         # Define Training procedure
         self.global_step = tf.Variable(0, name="global_step", trainable=False)
-        self.optimizer = tf.train.AdamOptimizer(FLAGS.learn_rate)                
+        self.optimizer = tf.train.RMSPropOptimizer(FLAGS.learn_rate) #tf.train.AdamOptimizer(FLAGS.learn_rate)                
         
         #self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 
@@ -486,11 +487,14 @@ class UnsupSeech(object):
                 # a list of embeddings to use for the binary classifier (the embeddings are combined)
                 self.outs = []
                 self.pre_outs = []
+                reuse_emb_trans=False
                 for i,input_window in enumerate([self.input_window_1, self.input_window_2]):
                     with tf.variable_scope("embedding-transform" if FLAGS.tied_embeddings_transforms else "embedding-transform-" + str(i)):     
                         if FLAGS.tied_embeddings_transforms and i > 0: 
                             print("Reusing variables for embeddings computation.")
-                            tf.get_variable_scope().reuse_variables()
+                            if not 'Resnet' in FLAGS.embedding_transformation:
+                                tf.get_variable_scope().reuse_variables()
+                            reuse_emb_trans=True
                         #input_reshaped = tf.reshape(self.input_x, [-1, 1, window_length, 1])
                         window_length = int(input_window.get_shape()[1])
                         
@@ -599,21 +603,21 @@ class UnsupSeech(object):
                             pooled = vgg16(pooled)
                             print('pool shape after vgg16 block:', pooled.get_shape())
        
-                        if FLAGS.embedding_transformation == "Vgg16big":
+                        if FLAGS.embedding_transformation == "Vgg16big" or FLAGS.embedding_transformation == "Vgg16bigB":
                             pooled = vgg16_big(pooled)
                             print('pool shape after vgg16 block:', pooled.get_shape())
                         
                         force_resnet_istraining=FLAGS.force_resnet_istraining
                         if FLAGS.embedding_transformation == "Resnet_v2_50_small":
                             with slim.arg_scope(resnet_v2.resnet_arg_scope()): 
-                                pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=True if force_resnet_istraining else is_training , spatial_squeeze=True, global_pool=True, num_classes=self.fc_size)
+                                pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=True if force_resnet_istraining else is_training , spatial_squeeze=True, global_pool=True, num_classes=self.fc_size, reuse=reuse_emb_trans)
                             needs_flattening = False   
                             print('pool shape after Resnet_v2_50_small block:', pooled.get_shape())
                             print('is_training: ', is_training)
                             
                         if FLAGS.embedding_transformation == "Resnet_v2_50":
                             with slim.arg_scope(resnet_v2.resnet_arg_scope()): 
-                                pooled, self.end_points = resnet_v2.resnet_v2_50(pooled, is_training=True if force_resnet_istraining else is_training , spatial_squeeze=True, global_pool=True, num_classes=self.fc_size)
+                                pooled, self.end_points = resnet_v2.resnet_v2_50(pooled, is_training=True if force_resnet_istraining else is_training , spatial_squeeze=True, global_pool=True, num_classes=self.fc_size, reuse=reuse_emb_trans)
                             needs_flattening = False   
                             print('pool shape after Resnet_v2_50 block:', pooled.get_shape())
                             print('is_training: ', is_training)
@@ -621,18 +625,29 @@ class UnsupSeech(object):
 
                         if FLAGS.embedding_transformation == "Resnet_v2_101":
                             with slim.arg_scope(resnet_v2.resnet_arg_scope()):
-                                pooled, self.end_points = resnet_v2.resnet_v2_101(pooled, is_training=True if force_resnet_istraining else is_training , spatial_squeeze=True, global_pool=True, num_classes=self.fc_size)
+                                pooled, self.end_points = resnet_v2.resnet_v2_101(pooled, is_training=True if force_resnet_istraining else is_training , spatial_squeeze=True, global_pool=True, num_classes=self.fc_size, reuse=reuse_emb_trans)
                             needs_flattening = False
                             print('pool shape after Resnet_v2_101 block:', pooled.get_shape())
                             print('is_training: ', is_training)
+                            print('reuse_emb_trans:', reuse_emb_trans)
 
                         if FLAGS.embedding_transformation == "Resnet_v2_50_small_flat":
                             with slim.arg_scope(resnet_v2.resnet_arg_scope()):
-                                pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=True if force_resnet_istraining else is_training, spatial_squeeze=False, global_pool=False, num_classes=self.fc_size)
+                                pooled, self.end_points = resnet_v2.resnet_v2_50_small(pooled, is_training=True if force_resnet_istraining else is_training, spatial_squeeze=False, global_pool=False, num_classes=self.fc_size, reuse=reuse_emb_trans)
                             needs_flattening = True   
                             print('pool shape after Resnet_v2_50_small_flat block:', pooled.get_shape())
                             print('is_training: ', is_training)
-					    
+					   
+                        if FLAGS.embedding_transformation == "Inception_Resnet_v2":
+                            with slim.arg_scope(inception_resnet_v2.inception_resnet_v2_arg_scope()):
+                                pooled, self.end_points = inception_resnet_v2.inception_resnet_v2(pooled, is_training=True if force_resnet_istraining else is_training, reuse=reuse_emb_trans,
+                                                                                                    create_aux_logits=False, num_classes=self.fc_size, scope='InceptionResnetV2')
+                                # we do the last logits layers in our code down below, so we use the pre logits (but flattened) output of Inception_Resnet_v2
+                                pooled = self.end_points['PreLogitsFlatten']
+                            needs_flattening = False
+                            print('pool shape after inception_resnet_v2 block:', pooled.get_shape())
+                            print('is_training: ', is_training)
+
                         # add summaries for res net and moving variance / moving averages of batch norm.
                         if FLAGS.embedding_transformation.startswith("Resnet") and FLAGS.log_tensorboard:
                             for var in list(self.end_points.values()) + [var for var in tf.global_variables() if 'moving' in var.name]:
@@ -669,11 +684,18 @@ class UnsupSeech(object):
                         print('flattened_pooled shape:',flattened_pooled.get_shape())
                         self.pre_outs.append(flattened_pooled)
                         
-                        if FLAGS.embedding_transformation.startswith("Resnet"):
+                        if FLAGS.embedding_transformation.startswith("WasResnet"):
                             fc2 = slim.fully_connected(slim.dropout(flattened_pooled, keep_prob=FLAGS.dropout_keep_prob , is_training=is_training), self.embeddings_size, activation_fn=None, normalizer_fn=None)
                             print('fc2 shape:',fc2.get_shape(), 'with inner dropout keep prob:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
+                        elif FLAGS.embedding_transformation == "Vgg16bigB":
+                            fc1 = slim.dropout(slim.fully_connected(flattened_pooled, self.fc_size, normalizer_fn=None), keep_prob=FLAGS.dropout_keep_prob , is_training=is_training) #weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
+                            print('fc1 shape:',fc1.get_shape(), 'with dropout:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
+                            fc1b = slim.dropout(slim.fully_connected(fc1, self.fc_size, normalizer_fn=None), keep_prob=FLAGS.dropout_keep_prob , is_training=is_training)
+                            print('fc1b shape:',fc1b.get_shape(), 'with dropout:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
+                            fc2 = slim.fully_connected(fc1b, self.embeddings_size, activation_fn=None, normalizer_fn=None)
+                            print('fc2 shape:',fc2.get_shape(), 'with dropout:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
                         else:
-                            fc1 = slim.dropout(slim.fully_connected(flattened_pooled, self.fc_size), keep_prob=FLAGS.dropout_keep_prob , is_training=is_training) #weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
+                            fc1 = slim.dropout(slim.fully_connected(flattened_pooled, self.fc_size, normalizer_fn=None), keep_prob=FLAGS.dropout_keep_prob , is_training=is_training) #weights_initializer=tf.truncated_normal_initializer(stddev=0.01)) #is_training)
                             print('fc1 shape:',fc1.get_shape(), 'with dropout:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
                             fc2 = slim.fully_connected(fc1, self.embeddings_size, activation_fn=None, normalizer_fn=None)
                             print('fc2 shape:',fc2.get_shape(), 'with dropout:', FLAGS.dropout_keep_prob, 'is_training:', is_training)
