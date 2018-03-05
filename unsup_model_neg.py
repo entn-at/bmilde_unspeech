@@ -408,7 +408,7 @@ class UnsupSeech(object):
     def create_training_graphs(self, create_new_train_dir=True, clip_norm=True, max_grad_norm=5.0):
         # Define Training procedure
         self.global_step = tf.Variable(0, name="global_step", trainable=False)
-        self.optimizer = tf.train.RMSPropOptimizer(FLAGS.learn_rate) #tf.train.AdamOptimizer(FLAGS.learn_rate)                
+        self.optimizer = tf.train.AdamOptimizer(FLAGS.learn_rate) #tf.train.RMSPropOptimizer(FLAGS.learn_rate) #tf.train.AdamOptimizer(FLAGS.learn_rate)                
         
         #self.update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 
