@@ -25,7 +25,7 @@ import sys
 
 try:
     import faiss
-    from gpu_dbscan import GpuDbscan
+    from gpu_dbscan.gpu_dbscan import GpuDbscan
     GpuDbscan_available = True
 except:
     print("Warning could not import faiss, cannot use GPU clustering.")
