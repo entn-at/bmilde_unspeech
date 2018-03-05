@@ -1,3 +1,25 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+@author: Benjamin Milde
+"""
+
+license = '''
+
+Copyright 2017,2018 Benjamin Milde (Language Technology, Universität Hamburg, Germany)
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.'''
+
 import wave
 import numpy as np
 import scipy
@@ -158,7 +180,8 @@ def rolling_window(a, window_len, hop):
     print('strides:',strides)
     return np.lib.stride_tricks.as_strided(a, shape=shape, strides=strides)[::hop]
 
-# from https://gist.github.com/seberg/3866040
+# This code is from https://gist.github.com/seberg/3866040, public domain?
+# This function is not licensed under Apache 2.0
 def rolling_window_better(array, window=(0,), asteps=None, wsteps=None, axes=None, toend=True):
     """Create a view of `array` which for every point gives the n-dimensional
     neighbourhood of size window. New dimensions are added at the end of

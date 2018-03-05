@@ -3,8 +3,13 @@
 """
 Created on Wed Jul 19 14:47:15 2017
 
-@author: me
+@author: Benjamin Milde (Language Technology, Universität Hamburg, Germany)
 """
+
+#
+# This code seems to be adapted from https://github.com/MaigoAkisame/fileutils/blob/master/kaldi.py
+# The original code was in Python 2.7, it has been adadpted/changed so that it is compatible with Python 3.x
+# No effort has been made to preserve backwards compatiblity, this code probably won't work with Python 2.x anymore
 
 import numpy
 import struct
