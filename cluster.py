@@ -485,7 +485,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('-n', '--n-clusters', dest='n_clusters', help='The number of clusters, if kmeans is used.', type=int, default = 42)
     parser.add_argument('-f', '--wav-files', dest='wav_files', help='Original wav files. Kaldi format file, uttid -> wavfile.', type=str, default = '')
-    parser.add_argument('-a', '--input-ark', dest='ark_file', help='Input ark with the computed features.', type=str, default = 'feats/feats_sp_transVgg16big_nsampling_rnd_win32_neg_samples4_lcontexts2_rcontexts2_flts40_embsize100_fc_size512_unit_norm_var_dropout_keep0.9_l2_reg0.0005_featinput_unnormalized.feats.ark_dot_combine_tied_embs/%set/feats.ark')
+    parser.add_argument('-a', '--input-ark', dest='ark_file', help='Input ark with the computed features.', type=str, default = 'feats/feats_sp_transVgg16big_nsampling_rnd_win64_neg_samples4_lcontexts2_rcontexts2_flts40_embsize100_fc_size512_unit_norm_var_dropout_keep0.9_l2_reg0.0005_featinput_unnormalized.feats.ark_dot_combine_tied_embs/%set/feats.ark')
                         #'feats/tedlium_ivectors/tedlium_ivector_online_test.ark') #'feats/feats_transVgg16big_nsampling_same_spk_win64_neg_samples4_lcontexts2_rcontexts2_flts40_embsize100_fc_size512_unit_norm_var_dropout_keep0.9_l2_reg0.0005_featinput_unnormalized.feats.ark_dot_combine_tied_embs/test/feats.ark')
     
     parser.add_argument('-hs', '--hopping-size', dest='hopping_size', help='Hopping size, in ms.', type=int, default=-1)
@@ -494,10 +494,10 @@ if __name__ == '__main__':
     parser.add_argument('-r', '--sampling-rate', dest='samplingrate', help='Sampling rate of the corpus', type=int, default=16000)
     parser.add_argument('--utt2spk', dest='utt2spk', help='Needed to compare speaker clusters and calculate scores.', type=str, default = 'feats/tedlium/%set/utt2spk_lium')
     parser.add_argument('--output_utt2spk', dest='output_utt2spk', help='Where to store speaker output speaker clusters.', type=str, default = 'feats/tedlium/%set/cl_utt2spk_min_cl%minclustersize_min_s_%minsample_%feat')
-    parser.add_argument('--set', dest='set', help='e.g. (train|dev|test)', type=str, default = 'dev')
+    parser.add_argument('--set', dest='set', help='e.g. (train|dev|test)', type=str, default = 'train')
     parser.add_argument('--mode', dest='mode', help='(cluster_speaker|cluster_phn)', type=str, default = 'cluster_speaker')
-    parser.add_argument('--hdbscan_min_cluster_sizes',  dest='hdbscan_min_cluster_sizes', help='hdbscan min_cluster_sizes parameter, either a single value or a comma separated list ov values.', default="3,5,8")
-    parser.add_argument('--hdbscan_min_samples_str', dest='hdbscan_min_samples_str', help='hdbscan min_samples_str parameter, either a single value or a comma separated list ov values.', default="3,5,8")
+    parser.add_argument('--hdbscan_min_cluster_sizes',  dest='hdbscan_min_cluster_sizes', help='hdbscan min_cluster_sizes parameter, either a single value or a comma separated list ov values.', default="5") #default="3,5,8")
+    parser.add_argument('--hdbscan_min_samples_str', dest='hdbscan_min_samples_str', help='hdbscan min_samples_str parameter, either a single value or a comma separated list ov values.', default="3") #default="3,5,8")
     parser.add_argument('--half_index', dest='half_index', help='Cut the feature representation at a certain point (e.g. useful if you want to cut a combined pos/neg unspeech embedding vector), set to -1 to disable.',  type=int, default=-1)
 
     args = parser.parse_args()
