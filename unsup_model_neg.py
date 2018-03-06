@@ -3,8 +3,24 @@
 """
 Created on Wed Jun 21 13:29:11 2017
 
-@author: me
+@author: Benjamin Milde
 """
+
+license = '''
+
+Copyright 2017,2018 Benjamin Milde (Language Technology, Universität Hamburg, Germany)
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.'''
 
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
@@ -53,6 +69,7 @@ tf.flags.DEFINE_boolean("generate_challenge_output_feats", False, "Whether to wr
 tf.flags.DEFINE_boolean("genfeat_combine_contexts", False, "True if positive and negative contexts should be combined. Doubles the unspeech representation size to 2x embed size.")
 tf.flags.DEFINE_boolean("genfeat_combine_fbank", False, "True if fbank and unspeech representation should be combined.")
 tf.flags.DEFINE_boolean("genfeat_boost", False, "Boost the values of the genearted feature output with a heuristic.")
+tf.flags.DEFINE_boolean("genfeat_stride", 1, "Compute features for every n-th (starting) frame.")
 
 tf.flags.DEFINE_boolean("generate_fbank_segmentation", False, "Generate a segmentation feature in the output representation (needs use_dot_combine at the moment)")
 tf.flags.DEFINE_boolean("generate_speaker_vectors", False, "Generate a segmentation feature in the output representation (needs use_dot_combine at the moment)")
@@ -1058,6 +1075,9 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                                     #otherwise fill up with zeros to fit the window
                                     rolling_full_array = [np.vstack((input_signal, [np.zeros_like(input_signal[-1])]*(FLAGS.window_length-input_signal.shape[0])))]
                                 
+                                if FLAGS.genfeat_stride > 1:
+                                    rolling_full_array = rolling_full_array[::FLAGS.genfeat_stride]
+                                
                                 print('length of tensorflow input features', len(rolling_full_array))
                                 
                                 feat = model.gen_feat_batch(sess, rolling_full_array, out_num=0)
@@ -1115,6 +1135,8 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                                 else:
                                     if FLAGS.genfeat_boost:
                                         feat = feat*feat_factor
+                                        
+                                
                                 
                                 if FLAGS.generate_speaker_vectors:
                                     # generate the average vector of the whole sequence (mean average over inner dimension)

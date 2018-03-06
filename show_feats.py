@@ -3,8 +3,24 @@
 """
 Created on Wed Jun 28 10:26:30 2017
 
-@author: me
+@author: Benjamin Milde
 """
+
+license = '''
+
+Copyright 2017,2018 Benjamin Milde (Language Technology, Universität Hamburg, Germany)
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.'''
 
 import pylab as  plt
 import numpy as np
@@ -72,10 +88,10 @@ def visualize_stats(feat_filename, max_feats, abs_feats=True, reverse_sort=True)
     plt.matshow([finalsum_sorted])
     plt.show()
     
-def visualize_kaldi_bin_feats(feat_filename, max_frames, num_feat=8, phn_file='', phn_offset=5, wav_file='', do_tsne=False):
+def visualize_kaldi_bin_feats(feat_filename, max_frames, num_feat=0, phn_file='', phn_offset=5, wav_file='', do_tsne=False):
     feats, utt_ids = kaldi_io.readArk(feat_filename , limit=10)
     
-    print(feats, utt_ids)
+    print([feat.shape for feat in feats], utt_ids)
     
     print('showing features for utt_id:', utt_ids[num_feat])
 
@@ -119,10 +135,11 @@ if __name__ == '__main__':
                         #'/Users/milde/inspect/feats_transVgg16big_win50_neg_samples4_lcontexts2_rcontexts2_flts40_embsize100_fc_size1024_dropout_keep0.9_batchnorm_bndecay0.95_l2_reg0.0005_dot_combine/dev/feats.ark')      
                         #'/Users/milde/inspect/kaldi_train/feats.normalized.ark')
                         #'/Users/milde/inspect/feats_transVgg16big_win50_neg_samples4_lcontexts2_rcontexts2_flts40_embsize100_fc_size1024_unit_norm_var_dropout_keep0.9_batchnorm_bndecay0.999_l2_reg0.0005_dot_combine/dev/feats.ark')
-                        'feats_vgg.ark')
+                        'feats/tedlium_ivectors/tedlium_ivector_online_test.ark')
+                        #'feats_vgg.ark')
     parser.add_argument('-f', '--format', dest='format', help='Format of the feature file (raw,kaldi_ark)', type=str, default = 'kaldi_ark')
-    parser.add_argument('-m', '--max_frames', dest='max_frames', help='Maximum frames', type=int, default = 200)
-    parser.add_argument('-n', '--num_feat', dest='num_feat', help='feat file to visualize', type=int, default = 0)
+    parser.add_argument('-m', '--max_frames', dest='max_frames', help='Maximum frames', type=int, default = 10000)
+    parser.add_argument('-n', '--num_feat', dest='num_feat', help='feat file to visualize', type=int, default = 2)
     parser.add_argument('-p', '--phn_file', dest='phn_file', help='Phoneme annotation file', type=str, default = '')
     parser.add_argument('--mode', dest='mode', help='(featshow|stats)', type=str, default = 'featshow')
 
