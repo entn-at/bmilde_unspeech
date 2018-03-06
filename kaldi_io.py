@@ -6,6 +6,10 @@ Created on Wed Jul 19 14:47:15 2017
 @author: me
 """
 
+from __future__ import division
+from __future__ import unicode_literals  
+from builtins import bytes, chr, int, str
+
 import numpy
 import struct
 from utils import smart_open
