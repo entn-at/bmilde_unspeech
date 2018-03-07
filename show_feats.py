@@ -88,6 +88,15 @@ def visualize_stats(feat_filename, max_feats, abs_feats=True, reverse_sort=True)
     plt.matshow([finalsum_sorted])
     plt.show()
     
+def visualize_classes_tsne(feat_filename, utt_2_class):
+    feats, utt_ids = kaldi_io.readArk(feat_filename)
+    
+    feats_len=len(feats)
+    
+    print("Loaded:" + str(feats_len) + "feats")
+        
+    
+    
 def visualize_kaldi_bin_feats(feat_filename, max_frames, num_feat=0, phn_file='', phn_offset=5, wav_file='', do_tsne=False):
     feats, utt_ids = kaldi_io.readArk(feat_filename , limit=10)
     
@@ -141,7 +150,8 @@ if __name__ == '__main__':
     parser.add_argument('-m', '--max_frames', dest='max_frames', help='Maximum frames', type=int, default = 10000)
     parser.add_argument('-n', '--num_feat', dest='num_feat', help='feat file to visualize', type=int, default = 2)
     parser.add_argument('-p', '--phn_file', dest='phn_file', help='Phoneme annotation file', type=str, default = '')
-    parser.add_argument('--mode', dest='mode', help='(featshow|stats)', type=str, default = 'featshow')
+    parser.add_argument('-u', '--utt_2_class', dest='utt_2_class', help='File with meta classes, e.g. male / female / age etc.', type=str, default = '')
+    parser.add_argument('--mode', dest='mode', help='(featshow|stats|classes_tsne)', type=str, default = 'featshow')
 
 
     args = parser.parse_args()
@@ -150,6 +160,8 @@ if __name__ == '__main__':
         visualize_stats(args.featfile, args.max_frames)
     elif args.mode=='featshow':
         visualize_kaldi_bin_feats(args.featfile, args.max_frames, phn_file= args.phn_file, num_feat=args.num_feat)
+    elif args.mode=='classes_tsne':
+        visualize_classes_tsne(args.featfile, utt_2_class)
     else:
         print("mode not supported.")
         #visualize_stats(args.featfile, args.max_frames)
