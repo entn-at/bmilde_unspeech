@@ -69,7 +69,8 @@ tf.flags.DEFINE_boolean("generate_challenge_output_feats", False, "Whether to wr
 tf.flags.DEFINE_boolean("genfeat_combine_contexts", False, "True if positive and negative contexts should be combined. Doubles the unspeech representation size to 2x embed size.")
 tf.flags.DEFINE_boolean("genfeat_combine_fbank", False, "True if fbank and unspeech representation should be combined.")
 tf.flags.DEFINE_boolean("genfeat_boost", False, "Boost the values of the genearted feature output with a heuristic.")
-tf.flags.DEFINE_boolean("genfeat_stride", 1, "Compute features for every n-th (starting) frame.")
+tf.flags.DEFINE_integer("genfeat_stride", 1, "Compute features for every n-th (starting) frame.")
+tf.flags.DEFINE_boolean("genfeat_interpolate_outputlength_padding", False, "This interpolates the length of the genearted frames so that they match the input length by copying the last vector. See also kaldi_normalize_to_input_length, that pads the input sequence instead to achieve the same thing.")
 
 tf.flags.DEFINE_boolean("generate_fbank_segmentation", False, "Generate a segmentation feature in the output representation (needs use_dot_combine at the moment)")
 tf.flags.DEFINE_boolean("generate_speaker_vectors", False, "Generate a segmentation feature in the output representation (needs use_dot_combine at the moment)")
@@ -1056,7 +1057,8 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                             if len(input_signal.shape)==1:
                                 feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size))
                             elif len(input_signal.shape)==2:
-                                
+                               
+
                                 if input_signal.shape[0] > FLAGS.window_length:
                                     rolling_shape = (FLAGS.window_length, input_signal.shape[-1])
                                     print('shape:',rolling_shape)
@@ -1075,7 +1077,11 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                                     #otherwise fill up with zeros to fit the window
                                     rolling_full_array = [np.vstack((input_signal, [np.zeros_like(input_signal[-1])]*(FLAGS.window_length-input_signal.shape[0])))]
                                 
+                                if FLAGS.genfeat_interpolate_outputlength_padding:
+                                    rolling_full_array = np.vstack((rolling_full_array, [rolling_full_array[-1]]*(FLAGS.window_length-1)))
+
                                 if FLAGS.genfeat_stride > 1:
+                                    print('using stride of:' + str(FLAGS.genfeat_stride))
                                     rolling_full_array = rolling_full_array[::FLAGS.genfeat_stride]
                                 
                                 print('length of tensorflow input features', len(rolling_full_array))
@@ -1087,7 +1093,20 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                                 feat_neg_factor = 10.0 / (abs(feat_neg.min()) + abs(feat_neg.max()) / 2.0)
 
                                 print('fbank factor:', (abs(input_signal.min()) + abs(input_signal.max())) / 2.0 )
-                                
+                               
+                                # The generates features will be shorter than the input features, by FLAGS.window_length-1 frames
+                                # This pads/copies the last vector of the generated output sequence to make the size equal to the input dimension
+                                # See also FLAGS.kaldi_normalize_to_input_length that does the same, but pads the input representation instead
+
+                                #if FLAGS.genfeat_interpolate_outputlength_padding:
+                                #    # Kaldi rounds the padding up, if the stride doesnt divide cleanly
+                                #    #extra_interpolate_padding = 0
+                                #    #if input_signal.shape[0] % FLAGS.genfeat_stride != 0:
+                                #    #    extra_interpolate_padding = 1
+                                #    #print('extra_interpolate_padding is:',extra_interpolate_padding)
+                                #    feat = np.vstack((feat, [feat[-1]]*(((FLAGS.window_length-1)//FLAGS.genfeat_stride) + extra_interpolate_padding)))
+                                #    feat_neg = np.vstack((feat_neg, [feat_neg[-1]]*(((FLAGS.window_length-1)//FLAGS.genfeat_stride) + extra_interpolate_padding)))
+
                                 if FLAGS.generate_fbank_segmentation:
                                     segmentation_feat_1 = inner1d(feat[:-FLAGS.window_length], feat_neg[FLAGS.window_length:])
                                     segmentation_feat_2 = inner1d(feat[:-FLAGS.window_length*2], feat_neg[FLAGS.window_length*2:])
