@@ -18,6 +18,7 @@ from builtins import bytes, chr, int, str
 import numpy
 import struct
 from utils import smart_open
+import io
 
 def readString(f):
     s = b""
@@ -74,7 +75,23 @@ def writeMatrix(f, data):
     else:
         raise ValueError("Unsupported matrix format '%s' for writing; currently supported formats are float64 and float32." % str(data.dtype))
 
-def readArk(filename, limit = numpy.inf):
+def readMemmapCache(memmap_dir='', memmap_dtype='float32'):
+    features = []
+    uttids = []
+    with io.open(memmap_dir + '/' + 'feature_map', 'r') as feature_map:
+        for line in feature_map:
+            if line[-1] == '\n':
+                line = line[:-1]
+            split = line.split()
+            uttid = split[0]
+            featshape = (int(split[0]), int(split[1]))
+            feature_mmap = numpy.memmap(memmap_dir + '/' + uttid, dtype=memmap_dtype, mode='r', shape=featshape)
+            
+            uttids.append(uttid)
+            features.append(feature_mmap)
+    return features, uttids
+
+def readArk(filename, limit = numpy.inf, memmap_dir='', memmap_dtype='float32'):
     """
     Reads the features in a Kaldi ark file.
     Returns a list of feature matrices and a list of the utterance IDs.
@@ -88,12 +105,24 @@ def readArk(filename, limit = numpy.inf):
             except ValueError:
                 break
             feature = readMatrix(f)
-            features.append(feature)
+            # use a memmap dir to hold the array content on a disk (e.g. ssd cache that is larger than your main memory)
+            if memmap_dir!='':
+                feature_mmap = numpy.memmap(memmap_dir + '/' + uttid, dtype=memmap_dtype, mode='w+', shape=feature.shape)
+                feature_mmap[:] = feature[:]
+                feature_mmap.flush()
+                features.append(feature_mmap)
+                del feature
+            else:
+                features.append(feature)
             uttids.append(uttid)
             if len(features) == limit: break
+    if memmap_dir!='':
+        with io.open(memmap_dir + '/' + 'feature_map', 'w') as feature_map:
+            for uttid, feature in zip(uttids, features):
+                feature_map.write(uttid + " %i %i\n" % (feature.shape[0], feature.shape[1]))
     return features, uttids
 
-def readScp(filename, limit = numpy.inf):
+def readScp(filename, limit = numpy.inf, memmap_dir='', memmap_dtype='float32'):
     """
     Reads the features in a Kaldi script file.
     Returns a list of feature matrices and a list of the utterance IDs.
