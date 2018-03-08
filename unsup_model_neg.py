@@ -79,6 +79,10 @@ tf.flags.DEFINE_integer("genfeat_hopsize", 1, "Hop size (in samples if end-to-en
 
 tf.flags.DEFINE_boolean("kaldi_normalize_to_input_length", True, "Wether to normalize the genearted output feature length to the input length (by extending the input length accordingly before generating output features). Only makes send for hopsize=1 and non end-to-end models.")
 
+tf.flags.DEFINE_boolean("memmap_reuse_cache", False, "Directly memmap the directory and its array files specified in memmap_dir (e.g. from a previous memmaped run)")
+tf.flags.DEFINE_string("memmap_dir", "", "If not empty, use this dir to store memmapped arrays on the filesystem. Use this if your systems main memory is not big enough to hold the complete")
+tf.flags.DEFINE_string("memmap_dtype", "float32", "dtype of the mmapped array")
+
 tf.flags.DEFINE_string("model_name", "feat1", "Model output name, currently only used for generate_challenge_output_feats")
 
 tf.flags.DEFINE_integer("sample_rate", 16000, "Sample rate of the audio files. Must have the same samplerate for all audio files.") # 100+ ms @ 16kHz
@@ -1365,10 +1369,14 @@ if __name__ == "__main__":
     else:
         features, utt_id_list = [],None
         #Using Kaldi scp
+        
+        if FLAGS.memmap_reuse_cache:
+            features, utt_id_list = kaldi_io.readMemmapCache(memmap_dir=FLAGS.memmap_dir, memmap_dtype=FLAGS.memmap_dtype)
+        #Using Kaldi scp
         if FLAGS.filelist.endswith('.scp'):
-            features, utt_id_list = kaldi_io.readScp(FLAGS.filelist, limit = 1000 if FLAGS.debug else np.inf)
+            features, utt_id_list = kaldi_io.readScp(FLAGS.filelist, limit = 1000 if FLAGS.debug else np.inf, memmap_dir=FLAGS.memmap_dir, memmap_dtype=FLAGS.memmap_dtype)
         elif FLAGS.filelist.endswith('.ark'):
-            features, utt_id_list = kaldi_io.readArk(FLAGS.filelist, limit = 1000 if FLAGS.debug else np.inf)
+            features, utt_id_list = kaldi_io.readArk(FLAGS.filelist, limit = 1000 if FLAGS.debug else np.inf, memmap_dir=FLAGS.memmap_dir, memmap_dtype=FLAGS.memmap_dtype)
             
         if utt_id_list is not None:
             print(utt_id_list)
