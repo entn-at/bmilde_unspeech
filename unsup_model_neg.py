@@ -71,6 +71,7 @@ tf.flags.DEFINE_boolean("genfeat_combine_fbank", False, "True if fbank and unspe
 tf.flags.DEFINE_boolean("genfeat_boost", False, "Boost the values of the genearted feature output with a heuristic.")
 tf.flags.DEFINE_integer("genfeat_stride", 1, "Compute features for every n-th (starting) frame.")
 tf.flags.DEFINE_boolean("genfeat_interpolate_outputlength_padding", False, "This interpolates the length of the genearted frames so that they match the input length by copying the last vector. See also kaldi_normalize_to_input_length, that pads the input sequence instead to achieve the same thing.")
+tf.flags.DEFINE_boolean("genfeat_kaldi_meannorm", False, "Replace the whole sequence with the mean of the sequeunce and unit normalize the ouput vector")
 
 tf.flags.DEFINE_boolean("generate_fbank_segmentation", False, "Generate a segmentation feature in the output representation (needs use_dot_combine at the moment)")
 tf.flags.DEFINE_boolean("generate_speaker_vectors", False, "Generate a segmentation feature in the output representation (needs use_dot_combine at the moment)")
@@ -1091,10 +1092,19 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                                 print('length of tensorflow input features', len(rolling_full_array))
                                 
                                 feat = model.gen_feat_batch(sess, rolling_full_array, out_num=0)
-                                feat_neg = model.gen_feat_batch(sess, rolling_full_array, out_num=1)
-                                
                                 feat_factor = 10.0 / (abs(feat.min()) + abs(feat.max()) / 2.0)
-                                feat_neg_factor = 10.0 / (abs(feat_neg.min()) + abs(feat_neg.max()) / 2.0)
+
+                                if FLAGS.genfeat_combine_contexts:
+                                    feat_neg = model.gen_feat_batch(sess, rolling_full_array, out_num=1)
+                                    feat_neg_factor = 10.0 / (abs(feat_neg.min()) + abs(feat_neg.max()) / 2.0)
+
+                                if FLAGS.genfeat_kaldi_meannorm:
+                                    feat_mean = feat.mean(0)
+                                    feat = np.vstack([feat_mean]*feat.shape[0])
+                                    
+                                    if FLAGS.genfeat_combine_contexts: 
+                                        feat_neg_mean = np.expand_dims(feat_neg.mean(0), axis=0)
+                                        feat_neg = np.vstack([feat_neg_mean]*feat_neg.shape[0])
 
                                 print('fbank factor:', (abs(input_signal.min()) + abs(input_signal.max())) / 2.0 )
                                
