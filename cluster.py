@@ -30,9 +30,10 @@ from hdbscan import HDBSCAN
 from sklearn import preprocessing
 from sklearn import metrics
 
-from  scipy.spatial.distance import pdist
+from scipy.spatial.distance import pdist
 
 import pylab as plt
+import numpy
 import numpy as np
 import utils
 import kaldi_io
@@ -173,12 +174,88 @@ def cluster_dbscan_gpu(X, eps, min_samples):
 
     return cluster_ids
 
+def same_different_experiment(ark_file, utt_2_spk, half_index=-1, normalize=True, fileset='', use_metric='euclidean', max_spks=-1):
+    
+    results_file = 'samedifferent_results.csv'
+    
+    from pyannote.metrics.plot.binary_classification import plot_det_curve, plot_distributions
+    
+    print('Loading feats now:')
+
+    feats, uttids = kaldi_io.readArk(ark_file.replace('%set', fileset))
+    
+    print('feat[0] shape: ', feats[0].shape)
+    
+    #feats = np.vstack([pairwise_normalize(feat[0]) for feat in feats])
+    
+    print('Generating mean vector.')
+
+    feats = np.vstack([feat.mean(0) for utt,feat in zip(uttids,feats)])
+    
+    if half_index != -1:
+        print('Cutting vectors at ', half_index, 'and normalize to unit length' if normalize else '')
+        feats = np.vstack([feat[half_index:]/(np.linalg.norm(feat[half_index:]) if normalize else 1.0) for feat in feats])
+    else:
+        if normalize:
+            print('Normalize to unit length.')
+            feats = np.vstack([feat/np.linalg.norm(feat) for feat in feats])
+    
+    print(type(feats))
+    print(feats)
+    
+    print('Calculating',use_metric,'distance matrix...') 
+    print('feats shape:', feats.shape)       
+    distances = pdist(feats, metric=use_metric)
+
+    if utt_2_spk is not None:
+        utt_2_spk = utils.loadUtt2Spk(utt_2_spk.replace('%set', fileset))
+        
+        if max_spks != -1:
+            # sample subset of speakers
+            spk_set = list(set(utt_2_spk.values()))
+            selected_spks = random.sample(spk_set, min(len(spk_set),max_spks))
+            
+            # make new utt2spk dictionary on subset
+            utt_2_spk_new = dict([(key,utt_2_spk[key]) for key in utt_2_spk if utt_2_spk[key] in selected_spks])
+            
+            #filter feats and uttids
+            feats = [feat for feat, uttid in zip(feats, uttids) if uttid in utt_2_spk_new]
+            uttids = [uttid for uttid in uttids if uttid in utt_2_spk_new]
+            
+            utt_2_spk = utt_2_spk_new
+        
+        ground_truth_utt_2_spk = [utt_2_spk[utt_id] for utt_id in uttids]
+        
+        le = preprocessing.LabelEncoder()
+        le.fit(ground_truth_utt_2_spk)
+        
+        ground_truth_utt_2_spk_int = le.transform(ground_truth_utt_2_spk)
+        
+        print("Ground truth speaker classes available:")
+        
+        print(ground_truth_utt_2_spk_int)
+
+    print('Calculating ground thruth distance matrix...')
+    y_true = pdist(np.asarray(ground_truth_utt_2_spk_int)[:,np.newaxis], metric='chebyshev') < 1
+    
+    result_key = ark_file.split('/')[-3] +  ('.' + fileset if fileset != '' else '')  + '.' + use_metric
+    prefix = 'plots/plot.' + ark_file.split('/')[-3] + '.' + use_metric
+    
+    plot_distributions(y_true, distances, prefix, xlim=(0, 2), ymax=3, nbins=100)
+    
+    eer = plot_det_curve(y_true, -distances, prefix)
+    
+    print('EER = {eer:.2f}%'.format(eer=100*eer))
+    
+    with open(results_file,'a') as outfile:
+        outfile.write(result_key + ' ' + '{eer:.2f}%'.format(eer=100*eer) + '\n')
+
 #def cluster_speaker(ark_file, dbscan_eps=0.0005, dbscan_min_samples=3, utt_2_spk = None, output_utt_2_spk = None, tsne_viz=False, n_jobs=4, range_search=False, use_gpu=True):
 def cluster_speaker(ark_file, half_index=-1, dbscan_eps=0.0005, dbscan_min_samples=3,     min_cluster_sizes_str = "5",
     min_samples_str = "3", utt_2_spk = None, output_utt_2_spk = None, fileset= 'dev', tsne_viz=False, n_jobs=4,
     db_scan_range_search=False, hdb_scan_range_search=False, normalize=True, do_save_result=True, use_gpu=False):
 
-    #postfix='_ivector'
+    postfix=''
     print('Loading feats now:')
 
     feats, uttids = kaldi_io.readArk(ark_file.replace('%set', fileset))
@@ -511,14 +588,17 @@ if __name__ == '__main__':
     parser.add_argument('--utt2spk', dest='utt2spk', help='Needed to compare speaker clusters and calculate scores.', type=str, default = 'feats/tedlium/%set/utt2spk_lium')
     parser.add_argument('--output_utt2spk', dest='output_utt2spk', help='Where to store speaker output speaker clusters.', type=str, default = 'feats/tedlium/%set/cl_utt2spk_min_cl%minclustersize_min_s_%minsample_%feat')
     parser.add_argument('--set', dest='set', help='e.g. (train|dev|test)', type=str, default = 'train')
-    parser.add_argument('--mode', dest='mode', help='(cluster_speaker|cluster_phn)', type=str, default = 'cluster_speaker')
+    parser.add_argument('--mode', dest='mode', help='(cluster_speaker|cluster_phn|samedifferent)', type=str, default = 'samedifferent')
     parser.add_argument('--hdbscan_min_cluster_sizes',  dest='hdbscan_min_cluster_sizes', help='hdbscan min_cluster_sizes parameter, either a single value or a comma separated list ov values.', default="5") #default="3,5,8")
     parser.add_argument('--hdbscan_min_samples_str', dest='hdbscan_min_samples_str', help='hdbscan min_samples_str parameter, either a single value or a comma separated list ov values.', default="3") #default="3,5,8")
     parser.add_argument('--half_index', dest='half_index', help='Cut the feature representation at a certain point (e.g. useful if you want to cut a combined pos/neg unspeech embedding vector), set to -1 to disable.',  type=int, default=-1)
+    parser.add_argument('--max_spks', dest='max_spks', help='Maximum speakers', type=int, default=100)
 
     args = parser.parse_args()
     
-    if args.mode == 'cluster_phn':
+    if args.mode == 'samedifferent':
+        same_different_experiment(args.ark_file, utt_2_spk=args.utt2spk, half_index=args.half_index, fileset=args.set, max_spks=args.max_spks)
+    elif args.mode == 'cluster_phn':
         cluster_phn(n_clusters=args.n_clusters, wav_files = args.wav_files, ark_file=args.ark_file, 
                     hopping_size=args.hopping_size, window_size=args.window_size, subsample=args.subsample, n_jobs=4)
     elif args.mode == 'cluster_speaker':
