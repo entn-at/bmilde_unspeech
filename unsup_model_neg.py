@@ -72,6 +72,7 @@ tf.flags.DEFINE_boolean("genfeat_boost", False, "Boost the values of the geneart
 tf.flags.DEFINE_integer("genfeat_stride", 1, "Compute features for every n-th (starting) frame.")
 tf.flags.DEFINE_boolean("genfeat_interpolate_outputlength_padding", False, "This interpolates the length of the genearted frames so that they match the input length by copying the last vector. See also kaldi_normalize_to_input_length, that pads the input sequence instead to achieve the same thing.")
 tf.flags.DEFINE_boolean("genfeat_kaldi_meannorm", False, "Replace the whole sequence with the mean of the sequeunce and unit normalize the ouput vector")
+tf.flags.DEFINE_integer("genfeat_max_length", 4000, "Ignore utterances longer than this while generating features (in frames).")
 
 tf.flags.DEFINE_boolean("generate_fbank_segmentation", False, "Generate a segmentation feature in the output representation (needs use_dot_combine at the moment)")
 tf.flags.DEFINE_boolean("generate_speaker_vectors", False, "Generate a segmentation feature in the output representation (needs use_dot_combine at the moment)")
@@ -1062,7 +1063,8 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                             if len(input_signal.shape)==1:
                                 feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size))
                             elif len(input_signal.shape)==2:
-                               
+                                if FLAGS.genfeat_max_length != -1 and input_signal.shape[0] > FLAGS.genfeat_max_length:
+                                    continue
 
                                 if input_signal.shape[0] > FLAGS.window_length:
                                     rolling_shape = (FLAGS.window_length, input_signal.shape[-1])
