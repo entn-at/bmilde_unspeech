@@ -33,17 +33,17 @@ additional_params="--fc_size 2048 --window_length 64 --window_neg_length 64 --un
 outputdir=/srv/data/milde/kaldi/egs/tedlium/s5_r2/data/unspeech_64_20k_lmt
 
 echo "computing feats for dev set..."
-#python3 unsup_model_neg.py --gen_feat --train_dir $run  --filelist /srv/data/milde/kaldi/egs/tedlium/s5_r2/data/dev_fbank/unnormalized.feats.ark  --num_filters $num_filters --embedding_transformation $embedding_transformation --num_highway_layers $num_highway_layers --embedding_size $embedding_size --num_dnn_layers $num_dnn_layers --hop_size $hop_size --additional_params $additional_params --output_feat_file $outputdir/dev/ivector_online
+python3 unsup_model_neg.py --gen_feat --train_dir $run  --filelist /srv/data/milde/kaldi/egs/tedlium/s5_r2/data/dev_fbank/unnormalized.feats.ark  --num_filters $num_filters --embedding_transformation $embedding_transformation --num_highway_layers $num_highway_layers --embedding_size $embedding_size --num_dnn_layers $num_dnn_layers --hop_size $hop_size --additional_params $additional_params --output_feat_file $outputdir/dev/ivector_online
 
 echo $genfeat_stride > $outputdir/dev/ivector_period
 
 echo "computing feats for test set... "
-#python3 unsup_model_neg.py --gen_feat --train_dir $run  --filelist /srv/data/milde/kaldi/egs/tedlium/s5_r2/data/test_fbank/unnormalized.feats.ark  --num_filters $num_filters --embedding_transformation $embedding_transformation --num_highway_layers $num_highway_layers --embedding_size $embedding_size --num_dnn_layers $num_dnn_layers --hop_size $hop_size --additional_params $additional_params --output_feat_file $outputdir/test/ivector_online
+python3 unsup_model_neg.py --gen_feat --train_dir $run  --filelist /srv/data/milde/kaldi/egs/tedlium/s5_r2/data/test_fbank/unnormalized.feats.ark  --num_filters $num_filters --embedding_transformation $embedding_transformation --num_highway_layers $num_highway_layers --embedding_size $embedding_size --num_dnn_layers $num_dnn_layers --hop_size $hop_size --additional_params $additional_params --output_feat_file $outputdir/test/ivector_online
 
 echo $genfeat_stride > $outputdir/test/ivector_period
 
 echo "computing feats for train set... "
-#python3 unsup_model_neg.py --gen_feat --train_dir $run  --filelist /srv/data/milde/kaldi/egs/tedlium/s5_r2/data/train_cleaned_sp_hires_fbank_comb/unnormalized.feats.ark  --num_filters $num_filters --embedding_transformation $embedding_transformation --num_highway_layers $num_highway_layers --embedding_size $embedding_size --num_dnn_layers $num_dnn_layers --hop_size $hop_size --additional_params $additional_params --output_feat_file $outputdir/train_cleaned_sp_comb/ivector_online
+python3 unsup_model_neg.py --gen_feat --train_dir $run  --filelist /srv/data/milde/kaldi/egs/tedlium/s5_r2/data/train_cleaned_sp_hires_fbank_comb/unnormalized.feats.ark  --num_filters $num_filters --embedding_transformation $embedding_transformation --num_highway_layers $num_highway_layers --embedding_size $embedding_size --num_dnn_layers $num_dnn_layers --hop_size $hop_size --additional_params $additional_params --output_feat_file $outputdir/train_cleaned_sp_comb/ivector_online
 
 echo $genfeat_stride > $outputdir/train_cleaned_sp_comb/ivector_period
 
