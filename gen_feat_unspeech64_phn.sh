@@ -31,9 +31,9 @@ hop_size=1
 genfeat_stride=2
 #additional_params="--batch_normalization --fc_size 1024 --unit_normalize_var"
 #additional_params="--fc_size 512 --unit_normalize_var --window_length 16 --window_neg_length 16 --unit_normalize_var"
-additional_params="--fc_size 2048 --window_length 32 --window_neg_length 32 --unit_normalize_var --tied_embeddings_transforms --nogenerate_speaker_vectors --nogenfeat_combine_contexts --nokaldi_normalize_to_input_length --genfeat_stride $genfeat_stride --notest_perf --genfeat_interpolate_outputlength_padding"
+additional_params="--fc_size 2048 --window_length 32 --window_neg_length 32 --unit_normalize_var --nogenerate_speaker_vectors --nogenfeat_combine_contexts --nokaldi_normalize_to_input_length --genfeat_stride $genfeat_stride --notest_perf --genfeat_interpolate_outputlength_padding"
 
-outputdir=/srv/data/milde/kaldi/egs/tedlium/s5_r2/data/unspeech_phn_32
+outputdir=/srv/data/milde/kaldi/egs/tedlium/s5_r2/data/unspeech_phn_32_stride${genfeat_stride}
 
 echo "computing feats for dev set..."
 python3 unsup_model_neg.py --gen_feats --train_dir $run  --filelist /srv/data/milde/kaldi/egs/tedlium/s5_r2/data/dev_fbank/unnormalized.feats.ark  --num_filters $num_filters --embedding_transformation $embedding_transformation --num_highway_layers $num_highway_layers --embedding_size $embedding_size --num_dnn_layers $num_dnn_layers --hop_size $hop_size  $additional_params --output_feat_file $outputdir/dev/ivector_online
@@ -56,6 +56,6 @@ python3 unsup_model_neg.py --gen_feats --train_dir $run  --filelist  /srv/data/m
 echo $genfeat_stride > $outputdir/valid_dev/ivector_period
 
 echo "computing feats for commonvoice test set... "
-python3 unsup_model_neg.py --gen_feats --train_dir $run  --filelist  /srv/data/milde/kaldi/egs/tedlium/s5_r2/data/valid_test_fbank/feats.unnormalized.ark --num_filters $num_filters --embedding_transformation $embedding_transformation --num_highway_layers $num_highway_layers --embedding_size $embedding_size --num_dnn_layers $num_dnn_layers --hop_size $hop_size --additional_params $additional_params --output_feat_file $outputdir/valid_test/ivector_online
+python3 unsup_model_neg.py --gen_feats --train_dir $run  --filelist  /srv/data/milde/kaldi/egs/tedlium/s5_r2/data/valid_test_fbank/feats.unnormalized.ark --num_filters $num_filters --embedding_transformation $embedding_transformation --num_highway_layers $num_highway_layers --embedding_size $embedding_size --num_dnn_layers $num_dnn_layers --hop_size $hop_size $additional_params --output_feat_file $outputdir/valid_test/ivector_online
 
 echo $genfeat_stride > $outputdir/valid_test/ivector_period
