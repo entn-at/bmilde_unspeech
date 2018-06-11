@@ -120,6 +120,7 @@ def get_vectors():
     
     response = Response(response_str,  mimetype='application/json')         
     return response
+
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Unspeech feature access server (used for HTML tsne vizualisation)')
