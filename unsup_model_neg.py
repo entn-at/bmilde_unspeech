@@ -50,119 +50,120 @@ from sklearn.cluster import KMeans, DBSCAN
 if sys.version_info[0] == 3:
     xrange = range
 
-tf.flags.DEFINE_string("filelist", "filelist.english.train", "Kaldi scp file if using kaldi feats, or for end-to-end learning a simple filelist, one wav file per line, optionally also an id (id wavfile per line).")
-tf.flags.DEFINE_string("spk2utt", "", "Optional, but required for per speaker negative sampling. ")
-tf.flags.DEFINE_boolean("end_to_end", False, "Use end-to-end learning (Input is 1D). Otherwise input is 2D like FBANK or MFCC features.")
-tf.flags.DEFINE_integer("feat_size", 40, "Size of the features inner dimension (only used if not using end-to-end training).")
+flags = tf.app.flags
+FLAGS = tf.app.flags.FLAGS
 
-tf.flags.DEFINE_boolean("debug", False, "Limits the filelist size and is more debug.")
+flags.DEFINE_string("filelist", "filelist.english.train", "Kaldi scp file if using kaldi feats, or for end-to-end learning a simple filelist, one wav file per line, optionally also an id (id wavfile per line).")
+flags.DEFINE_string("spk2utt", "", "Optional, but required for per speaker negative sampling. ")
+flags.DEFINE_boolean("end_to_end", False, "Use end-to-end learning (Input is 1D). Otherwise input is 2D like FBANK or MFCC features.")
+flags.DEFINE_integer("feat_size", 40, "Size of the features inner dimension (only used if not using end-to-end training).")
 
-tf.flags.DEFINE_boolean("gen_feats", False, "Load a model from train_dir")
-tf.flags.DEFINE_boolean("tnse_viz_speakers", False, "Vizualise how close speakers are in a trained embedding")
+flags.DEFINE_boolean("debug", False, "Limits the filelist size and is more debug.")
 
-tf.flags.DEFINE_boolean("test_sampling", False, "Test the sampling algorithm")
+flags.DEFINE_boolean("gen_feats", False, "Load a model from train_dir")
+flags.DEFINE_boolean("tnse_viz_speakers", False, "Vizualise how close speakers are in a trained embedding")
 
-tf.flags.DEFINE_boolean("generate_kaldi_output_feats", False, "Whether to write out a feature file for Kaldi (containing all utterances), requires a trained model")
-tf.flags.DEFINE_string("output_kaldi_ark", "output_kaldi.ark" , "Output file for Kaldi ark file")
-tf.flags.DEFINE_boolean("generate_challenge_output_feats", False, "Whether to write out a feature file in the unsupervise challenge format (containing all utterances), requires a trained model")
+flags.DEFINE_boolean("test_sampling", False, "Test the sampling algorithm")
 
-tf.flags.DEFINE_boolean("genfeat_combine_contexts", False, "True if positive and negative contexts should be combined. Doubles the unspeech representation size to 2x embed size.")
-tf.flags.DEFINE_boolean("genfeat_combine_fbank", False, "True if fbank and unspeech representation should be combined.")
-tf.flags.DEFINE_boolean("genfeat_boost", False, "Boost the values of the genearted feature output with a heuristic.")
-tf.flags.DEFINE_integer("genfeat_stride", 1, "Compute features for every n-th (starting) frame.")
-tf.flags.DEFINE_boolean("genfeat_interpolate_outputlength_padding", False, "This interpolates the length of the genearted frames so that they match the input length by copying the last vector. See also kaldi_normalize_to_input_length, that pads the input sequence instead to achieve the same thing.")
-tf.flags.DEFINE_boolean("genfeat_kaldi_meannorm", False, "Replace the whole sequence with the mean of the sequeunce and unit normalize the ouput vector")
-tf.flags.DEFINE_integer("genfeat_max_length", 4000, "Ignore utterances longer than this while generating features (in frames).")
+flags.DEFINE_boolean("generate_kaldi_output_feats", False, "Whether to write out a feature file for Kaldi (containing all utterances), requires a trained model")
+flags.DEFINE_string("output_kaldi_ark", "output_kaldi.ark" , "Output file for Kaldi ark file")
+flags.DEFINE_boolean("generate_challenge_output_feats", False, "Whether to write out a feature file in the unsupervise challenge format (containing all utterances), requires a trained model")
 
-tf.flags.DEFINE_boolean("generate_fbank_segmentation", False, "Generate a segmentation feature in the output representation (needs use_dot_combine at the moment)")
-tf.flags.DEFINE_boolean("generate_speaker_vectors", False, "Generate a segmentation feature in the output representation (needs use_dot_combine at the moment)")
+flags.DEFINE_boolean("genfeat_combine_contexts", False, "True if positive and negative contexts should be combined. Doubles the unspeech representation size to 2x embed size.")
+flags.DEFINE_boolean("genfeat_combine_fbank", False, "True if fbank and unspeech representation should be combined.")
+flags.DEFINE_boolean("genfeat_boost", False, "Boost the values of the genearted feature output with a heuristic.")
+flags.DEFINE_integer("genfeat_stride", 1, "Compute features for every n-th (starting) frame.")
+flags.DEFINE_boolean("genfeat_interpolate_outputlength_padding", False, "This interpolates the length of the genearted frames so that they match the input length by copying the last vector. See also kaldi_normalize_to_input_length, that pads the input sequence instead to achieve the same thing.")
+flags.DEFINE_boolean("genfeat_kaldi_meannorm", False, "Replace the whole sequence with the mean of the sequeunce and unit normalize the ouput vector")
+flags.DEFINE_integer("genfeat_max_length", 4000, "Ignore utterances longer than this while generating features (in frames).")
 
-tf.flags.DEFINE_integer("hop_size", 1,"The hopsize over the input features while genearting output features.")
-tf.flags.DEFINE_integer("genfeat_hopsize", 1, "Hop size (in samples if end-to-end) for the feature generation.")
+flags.DEFINE_boolean("generate_fbank_segmentation", False, "Generate a segmentation feature in the output representation (needs use_dot_combine at the moment)")
+flags.DEFINE_boolean("generate_speaker_vectors", False, "Generate a segmentation feature in the output representation (needs use_dot_combine at the moment)")
 
-tf.flags.DEFINE_boolean("kaldi_normalize_to_input_length", True, "Wether to normalize the genearted output feature length to the input length (by extending the input length accordingly before generating output features). Only makes send for hopsize=1 and non end-to-end models.")
+flags.DEFINE_integer("hop_size", 1,"The hopsize over the input features while genearting output features.")
+flags.DEFINE_integer("genfeat_hopsize", 1, "Hop size (in samples if end-to-end) for the feature generation.")
 
-tf.flags.DEFINE_boolean("memmap_reuse_cache", False, "Directly memmap the directory and its array files specified in memmap_dir (e.g. from a previous memmaped run)")
-tf.flags.DEFINE_string("memmap_dir", "", "If not empty, use this dir to store memmapped arrays on the filesystem. Use this if your systems main memory is not big enough to hold the complete")
-tf.flags.DEFINE_string("memmap_dtype", "float32", "dtype of the mmapped array")
+flags.DEFINE_boolean("kaldi_normalize_to_input_length", True, "Wether to normalize the genearted output feature length to the input length (by extending the input length accordingly before generating output features). Only makes send for hopsize=1 and non end-to-end models.")
 
-tf.flags.DEFINE_string("model_name", "feat1", "Model output name, currently only used for generate_challenge_output_feats")
+flags.DEFINE_boolean("memmap_reuse_cache", False, "Directly memmap the directory and its array files specified in memmap_dir (e.g. from a previous memmaped run)")
+flags.DEFINE_string("memmap_dir", "", "If not empty, use this dir to store memmapped arrays on the filesystem. Use this if your systems main memory is not big enough to hold the complete")
+flags.DEFINE_string("memmap_dtype", "float32", "dtype of the mmapped array")
 
-tf.flags.DEFINE_integer("sample_rate", 16000, "Sample rate of the audio files. Must have the same samplerate for all audio files.") # 100+ ms @ 16kHz
-tf.flags.DEFINE_string("filter_sizes", "512", "Comma-separated filter sizes (default: '200')") # 25ms @ 16kHz
-tf.flags.DEFINE_integer("num_filters", 40, "Number of filters per filter size (default: 40)")
+flags.DEFINE_string("model_name", "feat1", "Model output name, currently only used for generate_challenge_output_feats")
 
-tf.flags.DEFINE_integer("window_length", 50, "Main window length, samples (end-to-end) or frames (FBANK)") # 100+ ms @ 16kHz
-tf.flags.DEFINE_integer("window_neg_length", 50, "Context window length, samples (end-to-end) or frames (FBANK)") # 100+ ms @ 16kHz
+flags.DEFINE_integer("sample_rate", 16000, "Sample rate of the audio files. Must have the same samplerate for all audio files.") # 100+ ms @ 16kHz
+flags.DEFINE_string("filter_sizes", "512", "Comma-separated filter sizes (default: '200')") # 25ms @ 16kHz
+flags.DEFINE_integer("num_filters", 40, "Number of filters per filter size (default: 40)")
 
-tf.flags.DEFINE_integer("left_contexts", 2, "How many left context windows")
-tf.flags.DEFINE_integer("right_contexts", 2, "How many right context windows")
+flags.DEFINE_integer("window_length", 50, "Main window length, samples (end-to-end) or frames (FBANK)") # 100+ ms @ 16kHz
+flags.DEFINE_integer("window_neg_length", 50, "Context window length, samples (end-to-end) or frames (FBANK)") # 100+ ms @ 16kHz
 
-tf.flags.DEFINE_integer("embedding_size", 100 , "Fully connected size at the end of the network.")
+flags.DEFINE_integer("left_contexts", 2, "How many left context windows")
+flags.DEFINE_integer("right_contexts", 2, "How many right context windows")
 
-tf.flags.DEFINE_integer("fc_size", 512 , "Fully connected size at the end of the network.")
+flags.DEFINE_integer("embedding_size", 100 , "Fully connected size at the end of the network.")
 
-tf.flags.DEFINE_boolean("first_layer_tanh", True, "Whether tanh should be used for the output conv1d filters in end-to-end networks.")
-tf.flags.DEFINE_boolean("first_layer_log1p", True, "Whether log1p should be applied to the output of the conv1d filters.")
+flags.DEFINE_integer("fc_size", 512 , "Fully connected size at the end of the network.")
 
-tf.flags.DEFINE_string("embedding_transformation", "BaselineDnn", "What network to use for the embeddings computation. Vgg16, DenseNet, BaselineDnn, HighwayDnn.")
+flags.DEFINE_boolean("first_layer_tanh", True, "Whether tanh should be used for the output conv1d filters in end-to-end networks.")
+flags.DEFINE_boolean("first_layer_log1p", True, "Whether log1p should be applied to the output of the conv1d filters.")
 
-tf.flags.DEFINE_integer("dense_block_filters", 5,  "Number of filters inside a conv2d in a dense block.")
-tf.flags.DEFINE_integer("dense_block_layers_connected", 3,  "Number of layers inside dense block.")
-tf.flags.DEFINE_integer("dense_block_filters_transition", 4, "Number of filters inside a conv2d in a dense block transition.")
+flags.DEFINE_string("embedding_transformation", "BaselineDnn", "What network to use for the embeddings computation. Vgg16, DenseNet, BaselineDnn, HighwayDnn.")
 
-tf.flags.DEFINE_integer("num_highway_layers", 6, "How many layers for the highway dnn.")
-tf.flags.DEFINE_integer("num_dnn_layers", 3, "How many layers for the baseline dnn.")
+flags.DEFINE_integer("dense_block_filters", 5,  "Number of filters inside a conv2d in a dense block.")
+flags.DEFINE_integer("dense_block_layers_connected", 3,  "Number of layers inside dense block.")
+flags.DEFINE_integer("dense_block_filters_transition", 4, "Number of filters inside a conv2d in a dense block transition.")
 
-tf.flags.DEFINE_boolean("tied_embeddings_transforms", False, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
-tf.flags.DEFINE_boolean("tied_final_embeddings_transforms", False, "Whether the final embedding transform should be tied. Can be set to True, even when window sizes don't match, but might not make much sense together with use_dot_combine.")
-tf.flags.DEFINE_boolean("use_weighted_loss_func", False, "Whether the class imbalance of having k negative samples should be countered by weighting the positive examples k-times more.")
-tf.flags.DEFINE_boolean("use_dot_combine", True, "Define the loss function over the logits of the dot product of window and context window.")
-tf.flags.DEFINE_boolean("unit_normalize", False, "Before computing the dot product, normalize network output to unit length. Effectively computes the cosine distance. Doesnt really help the optimization.")
-tf.flags.DEFINE_boolean("unit_normalize_var", False, "Use a trainable var to scale the output of the network.")
+flags.DEFINE_integer("num_highway_layers", 6, "How many layers for the highway dnn.")
+flags.DEFINE_integer("num_dnn_layers", 3, "How many layers for the baseline dnn.")
 
-tf.flags.DEFINE_integer("negative_samples", 4, "How many negative samples to generate.")
-tf.flags.DEFINE_integer("test_perf_samples", 100, "How many batches to generate for testing accuracy.")
+flags.DEFINE_boolean("tied_embeddings_transforms", False, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
+flags.DEFINE_boolean("tied_final_embeddings_transforms", False, "Whether the final embedding transform should be tied. Can be set to True, even when window sizes don't match, but might not make much sense together with use_dot_combine.")
+flags.DEFINE_boolean("use_weighted_loss_func", False, "Whether the class imbalance of having k negative samples should be countered by weighting the positive examples k-times more.")
+flags.DEFINE_boolean("use_dot_combine", True, "Define the loss function over the logits of the dot product of window and context window.")
+flags.DEFINE_boolean("unit_normalize", False, "Before computing the dot product, normalize network output to unit length. Effectively computes the cosine distance. Doesnt really help the optimization.")
+flags.DEFINE_boolean("unit_normalize_var", False, "Use a trainable var to scale the output of the network.")
 
-tf.flags.DEFINE_boolean("test_perf", True, "When generating features, test accuracy by randomly sampling batches and compare the prediction quality of the model.")
-tf.flags.DEFINE_boolean("debug_visualize", False , "Visualize the generated features.")
-tf.flags.DEFINE_boolean("debug_visualize_batch", False , "Visualize the generated batches.")
+flags.DEFINE_integer("negative_samples", 4, "How many negative samples to generate.")
+flags.DEFINE_integer("test_perf_samples", 100, "How many batches to generate for testing accuracy.")
+
+flags.DEFINE_boolean("test_perf", True, "When generating features, test accuracy by randomly sampling batches and compare the prediction quality of the model.")
+flags.DEFINE_boolean("debug_visualize", False , "Visualize the generated features.")
+flags.DEFINE_boolean("debug_visualize_batch", False , "Visualize the generated batches.")
 
 
 
-tf.flags.DEFINE_integer("batch_size", 32, "Batch Size (default: 64)")
-tf.flags.DEFINE_boolean("batch_normalization", False, "Whether to use batch normalization.")
+flags.DEFINE_integer("batch_size", 32, "Batch Size (default: 64)")
+flags.DEFINE_boolean("batch_normalization", False, "Whether to use batch normalization.")
 
-tf.flags.DEFINE_boolean("force_resnet_istraining", True, "Force true for resnet is_training parameter. Sometimes this helps to avoid low test performance when loading the model, might be batch normalization related.")
+flags.DEFINE_boolean("force_resnet_istraining", True, "Force true for resnet is_training parameter. Sometimes this helps to avoid low test performance when loading the model, might be batch normalization related.")
 
-tf.flags.DEFINE_float("batch_normalization_decay", 0.999, "Decay for batch normalization. Make this value smaller (e.g. 0.95), if you want the bn averages to compute/warm up faster. Closer to 1.0 = averages are more stable throughout training. Default 0.99.")
+flags.DEFINE_float("batch_normalization_decay", 0.999, "Decay for batch normalization. Make this value smaller (e.g. 0.95), if you want the bn averages to compute/warm up faster. Closer to 1.0 = averages are more stable throughout training. Default 0.99.")
 
-tf.flags.DEFINE_float("dropout_keep_prob", 0.9 , "Dropout keep probability")
-tf.flags.DEFINE_float("l2_reg", 0.0005 , "L2 regularization")
+flags.DEFINE_float("dropout_keep_prob", 0.9 , "Dropout keep probability")
+flags.DEFINE_float("l2_reg", 0.0005 , "L2 regularization")
 
-tf.flags.DEFINE_integer("steps_per_checkpoint", 2000,
+flags.DEFINE_integer("steps_per_checkpoint", 2000,
                                 "How many training steps to do per checkpoint.")
-tf.flags.DEFINE_integer("steps_per_summary", 4000,
+flags.DEFINE_integer("steps_per_summary", 4000,
                                 "How many training steps to do per summary.")
 
-tf.flags.DEFINE_integer("checkpoints_per_save", 1,
+flags.DEFINE_integer("checkpoints_per_save", 1,
                                 "How many checkpoints until saving the model.")
 
-tf.flags.DEFINE_boolean("allow_soft_placement", True, "Allow device soft device placement")
-tf.flags.DEFINE_boolean("log_device_placement", False, "Log placement of ops on devices")
+flags.DEFINE_boolean("allow_soft_placement", True, "Allow device soft device placement")
+flags.DEFINE_boolean("log_device_placement", False, "Log placement of ops on devices")
 
-tf.flags.DEFINE_float("learn_rate", 1e-4, "Learn rate for the optimizer")
-tf.flags.DEFINE_float("gradient_clipping", 10.0, "Clip the gradient at larger +/- this value.")
+flags.DEFINE_float("learn_rate", 1e-4, "Learn rate for the optimizer")
+flags.DEFINE_float("gradient_clipping", 10.0, "Clip the gradient at larger +/- this value.")
 
-tf.flags.DEFINE_boolean("log_tensorboard", True, "Log training process if this is set to True.")
+flags.DEFINE_boolean("log_tensorboard", True, "Log training process if this is set to True.")
 
-tf.flags.DEFINE_string("train_dir", "/srv/data/milde/unspeech_models/neg/", "Training dir to resume training from. If empty, a new one will be created.")
-tf.flags.DEFINE_string("output_feat_file", "/srv/data/milde/unspeech_models/feats/", "Necessary suffixes will get appended (depending on output format).")
-tf.flags.DEFINE_string("output_feat_format", "kaldi_bin", "Feat format")
+flags.DEFINE_string("train_dir", "/srv/data/milde/unspeech_models/neg/", "Training dir to resume training from. If empty, a new one will be created.")
+flags.DEFINE_string("output_feat_file", "/srv/data/milde/unspeech_models/feats/", "Necessary suffixes will get appended (depending on output format).")
+flags.DEFINE_string("output_feat_format", "kaldi_bin", "Feat format")
 
-tf.flags.DEFINE_string("device","/gpu:1", "Computation device, e.g. /gpu:1 for 1st GPU.")
-
-FLAGS = tf.flags.FLAGS
+flags.DEFINE_string("device","/gpu:1", "Computation device, e.g. /gpu:1 for 1st GPU.")
 
 training_data = {}
 #TODO load this correctly. Format: dict, spk -> list utt ids
@@ -175,8 +176,8 @@ def sigmoid(x):
 
 def get_FLAGS_params_as_str():
     params_str = ''
-    for attr, value in sorted(FLAGS.__flags.items()):
-        params_str += "{}={}\n".format(attr.upper(), value)
+    for attr, value in sorted(FLAGS.flag_values_dict().items()):
+        params_str += "{}={}\n".format(attr, value)
     return params_str
 
 def pool1d(value, ksize, strides, padding, data_format="NHWC", name=None):
@@ -1353,7 +1354,9 @@ def test_sampling(utt_id_list, spk2utt=None, spk2len=None, num_speakers=0 ):
     
 
 if __name__ == "__main__":
-    FLAGS._parse_flags()
+    FLAGS(sys.argv)
+    # pre tf 1.5:
+    #FLAGS._parse_flags()
     print("\nParameters:")
     print(get_FLAGS_params_as_str())
 
