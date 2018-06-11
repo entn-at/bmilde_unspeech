@@ -113,13 +113,12 @@ def get_vectors():
             response_vec_dict[utt_id] = feat.tolist()
         
         response_str = json.dumps({'status':'success', 'vectors':response_vec_dict})
-        response = Response(response_str,  mimetype='application/json')
         
     else:
         print('Not yet supported')
         response_str = json.dumps({'status':'fail', 'reason':'average_utts==False not yet supported'})
-        response = Response(response_str,  mimetype='application/json')
-          
+    
+    response = Response(response_str,  mimetype='application/json')         
     return response
 if __name__ == '__main__':
 
