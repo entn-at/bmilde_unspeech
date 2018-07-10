@@ -444,22 +444,22 @@ def cluster_speaker(ark_file, half_index=-1, dbscan_eps=0.0005, dbscan_min_sampl
             
             #print('Numpy bincount of the clustering:', np.bincount(clustering))
         
+            number_format = "%.4f"
+    
+            clustering_labels1 = clustering_labels
+            clustering_labels2 = []
+    
+            num_outliers = -1
+            for elem in clustering_labels1:
+                if elem == -1:
+                    clustering_labels2.append(num_outliers)
+                    num_outliers -= 1
+                else:
+                    clustering_labels2.append(elem)
+            
+            num_outliers = (num_outliers+1)*-1
+            
             if utt_2_spk is not None and utt_2_spk.lower() != 'none' and utt_2_spk.strip() != '':
-                
-                number_format = "%.4f"
-        
-                clustering_labels1 = clustering_labels
-                clustering_labels2 = []
-        
-                num_outliers = -1
-                for elem in clustering_labels1:
-                    if elem == -1:
-                        clustering_labels2.append(num_outliers)
-                        num_outliers -= 1
-                    else:
-                        clustering_labels2.append(elem)
-                
-                num_outliers = (num_outliers+1)*-1
                 
                 if do_save_result:
                     save_result(feat_key, 'outliers_'  + fileset, str(num_outliers))
