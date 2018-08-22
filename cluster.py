@@ -216,7 +216,7 @@ def same_different_experiment(ark_file, utt_2_spk, half_index=-1, normalize=Fals
     #print(type(feats))
     #print(feats)
 
-    if utt_2_spk is not None:
+    if utt_2_spk is not None and utt_2_spk.lower() != 'none' and utt_2_spk.strip() != '':
         utt_2_spk = utils.loadUtt2Spk(utt_2_spk.replace('%set', fileset))
         
         if max_spks != -1:
@@ -714,7 +714,7 @@ def cluster_speaker(ark_file, half_index=-1, dbscan_eps=0.0005, dbscan_min_sampl
     
     ground_truth_utt_2_spk, ground_truth_utt_2_spk_int = None,None
     
-    if utt_2_spk is not None:
+    if utt_2_spk is not None and utt_2_spk.lower() != 'none' and utt_2_spk.strip() != '':
         utt_2_spk = utils.loadUtt2Spk(utt_2_spk.replace('%set', fileset))
         
         ground_truth_utt_2_spk = [utt_2_spk[utt_id] for utt_id in uttids]
@@ -821,22 +821,22 @@ def cluster_speaker(ark_file, half_index=-1, dbscan_eps=0.0005, dbscan_min_sampl
             
             #print('Numpy bincount of the clustering:', np.bincount(clustering))
         
-            if utt_2_spk is not None:
-                
-                number_format = "%.4f"
-        
-                clustering_labels1 = clustering_labels
-                clustering_labels2 = []
-        
-                num_outliers = -1
-                for elem in clustering_labels1:
-                    if elem == -1:
-                        clustering_labels2.append(num_outliers)
-                        num_outliers -= 1
-                    else:
-                        clustering_labels2.append(elem)
-                
-                num_outliers = (num_outliers+1)*-1
+            number_format = "%.4f"
+    
+            clustering_labels1 = clustering_labels
+            clustering_labels2 = []
+    
+            num_outliers = -1
+            for elem in clustering_labels1:
+                if elem == -1:
+                    clustering_labels2.append(num_outliers)
+                    num_outliers -= 1
+                else:
+                    clustering_labels2.append(elem)
+            
+            num_outliers = (num_outliers+1)*-1
+            
+            if utt_2_spk is not None and utt_2_spk.lower() != 'none' and utt_2_spk.strip() != '':
                 
                 if do_save_result:
                     save_result(feat_key, 'outliers_'  + fileset, str(num_outliers))
@@ -927,7 +927,7 @@ def cluster_speaker(ark_file, half_index=-1, dbscan_eps=0.0005, dbscan_min_sampl
         #model = TSNE(n_components=2, random_state=0, metric='cosine')
         #tsne_data = model.fit_transform([feat[100:] for feat in feats])
 
-        if utt_2_spk is not None:
+        if utt_2_spk is not None and utt_2_spk.lower() != 'none' and utt_2_spk.strip() != '':
             num_speakers = max(ground_truth_utt_2_spk_int) +1
         else:
             num_speakers = len(set(clustering_labels))
@@ -935,7 +935,7 @@ def cluster_speaker(ark_file, half_index=-1, dbscan_eps=0.0005, dbscan_min_sampl
         colormap = plt.cm.gist_ncar #nipy_spectral, Set1,Paired  
         colorst = colormap(np.linspace(0, 0.9, num_speakers)) #[colormap(i) for i in np.linspace(0, 0.9, num_speakers)]  
         
-        if utt_2_spk is not None:
+        if utt_2_spk is not None and utt_2_spk.lower() != 'none' and utt_2_spk.strip() != '':
             cs = [colorst[ground_truth_utt_2_spk_int[i]] for i in range(len(clustering_labels))]
         else:
             cs = [colorst[clustering_labels[i]] for i in range(len(clustering_labels))]

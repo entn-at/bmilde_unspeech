@@ -85,6 +85,13 @@ def get_vectors():
     else:
         print('POST /get_vectors called without average_utts parameter, setting to default true (enable)')
         average_utts = True
+
+    if not average_utts or average_utts == 'False' or average_utts == 'false':
+        if 'stride' in flask.request.form:
+            stride = int(flask.request.form['stride'])
+        else:
+            print('POST /get_vectors called with average_utts = False, but stride parameter is not set, setting it to the default value (1)')
+            stride = 1
         
     normalize = ('normalize' in flask.request.form)
 
@@ -115,8 +122,22 @@ def get_vectors():
         response_str = json.dumps({'status':'success', 'vectors':response_vec_dict})
         
     else:
-        print('Not yet supported')
-        response_str = json.dumps({'status':'fail', 'reason':'average_utts==False not yet supported'})
+        if stride != 1:
+            feats = [feat[::stride] for feat in feats]
+
+        if half_index != -1:
+            print('Cutting vectors at ', half_index)
+            print('Not yet supported')
+
+        if normalize:
+            feats = [(feat.T / np.linalg.norm(feat, axis=1)).T for feat in feats]
+
+        response_vec_dict = {}
+        
+        for utt_id, feat in zip(utt_ids, feats):
+            response_vec_dict[utt_id] = feat.tolist()
+        
+        response_str = json.dumps({'status':'success', 'vectors':response_vec_dict})
     
     response = Response(response_str,  mimetype='application/json')         
     return response
