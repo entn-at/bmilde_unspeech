@@ -64,6 +64,7 @@ flags.DEFINE_boolean("gen_feats", False, "Load a model from train_dir")
 flags.DEFINE_boolean("tnse_viz_speakers", False, "Vizualise how close speakers are in a trained embedding")
 
 flags.DEFINE_boolean("test_sampling", False, "Test the sampling algorithm")
+flags.DEFINE_boolean("sample_2x_neg", True, "If disabled, only one of the negative sampled windows is used along side the true target. If enabled, the negative samples are two unrelated windows (default).")
 
 flags.DEFINE_boolean("generate_kaldi_output_feats", False, "Whether to write out a feature file for Kaldi (containing all utterances), requires a trained model")
 flags.DEFINE_string("output_kaldi_ark", "output_kaldi.ark" , "Output file for Kaldi ark file")
@@ -362,7 +363,7 @@ def get_random_audiosample(idlist, idlist_size, window_size, random_id=None, spk
 
 # does a batch where one of the examples are two windows with consecutive signals and k randomly selected window_2s
 #, with a fixed window1
-def get_batch_k_samples(idlist, window_length, window_neg_length, spk2utt=None, spk2len=None, num_speakers = 0, left_contexts=0, right_contexts=1 , k=4, debug=False):            
+def get_batch_k_samples(idlist, window_length, window_neg_length, spk2utt=None, spk2len=None, num_speakers = 0, left_contexts=0, right_contexts=1 , k=4, sample_2x_neg=True, debug=False):            
     window_batch = []
     window_neg_batch = []
     labels = []
@@ -398,13 +399,19 @@ def get_batch_k_samples(idlist, window_length, window_neg_length, spk2utt=None, 
                         window_neg_batch.append(window_neg)
                     else:
                         print('[true sample] Warning, window size not correct in get_batch_k_samples:', 'shape(w):', window.shape, 'shape(neg_w):' ,window_neg.shape, '. I will ignore this sample.')
+            last_target_window = window
         else:
             
             if debug:
                 print('Selecting random sample from speaker:',spk_id)
             # Select two random samples. If we do per speaker sampling, then spk_id!= None and two samples from the same speaker are sampled.
             # Otherwise, if random_file_num is not None, we do per utterance sampling.
-            window, _ = get_random_audiosample(idlist, idlist_size, window_length, random_id=None, spk2utt=spk2utt, spk_id=spk_id, spk2utt_keys=spk2utt_keys, num_speakers=num_speakers, spk2len=spk2len)
+            
+            if sample_2x_neg:
+                window, _ = get_random_audiosample(idlist, idlist_size, window_length, random_id=None, spk2utt=spk2utt, spk_id=spk_id, spk2utt_keys=spk2utt_keys, num_speakers=num_speakers, spk2len=spk2len)
+            else:
+                window = last_target_window
+            
             window_neg, _ = get_random_audiosample(idlist, idlist_size, window_neg_length, random_id=None, spk2utt=spk2utt, spk_id=spk_id, spk2utt_keys=spk2utt_keys, num_speakers=num_speakers, spk2len= spk2len)
             
             if window.shape[0] == window_length and window_neg.shape[0] == window_neg_length:
@@ -793,7 +800,7 @@ def get_model_flags_param_short():
                                     '_dropout_keep' + str(FLAGS.dropout_keep_prob) + ('_batchnorm_bndecay' + str(FLAGS.batch_normalization_decay) if FLAGS.batch_normalization else '') + '_l2_reg' + str(FLAGS.l2_reg) + \
                                     ('_highwaydnn' + str(FLAGS.num_highway_layers) if FLAGS.embedding_transformation=='HighwayDnn' else '') + \
                                     ('_featinput_' + FLAGS.filelist.split('/')[-1]) + \
-                                    ('_dot_combine' if FLAGS.use_dot_combine else '') + ('_tied_embs' if FLAGS.tied_embeddings_transforms else '')
+                                    ('_dot_combine' if FLAGS.use_dot_combine else '') + ('_tied_embs' if FLAGS.tied_embeddings_transforms else '') + ('_no_2x_neg' if not FLAGS.sample_2x_neg else '')
 
 
 # do a tsne vizualization on how close speakers are in the embedded space on average
@@ -961,7 +968,7 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                             input_window_1, input_window_2, labels = get_batch_k_samples(idlist=utt_id_list, window_length=FLAGS.window_length, 
                                                                                    window_neg_length=FLAGS.window_neg_length, left_contexts=FLAGS.left_contexts,
                                                                                    right_contexts=FLAGS.right_contexts, k=FLAGS.negative_samples, 
-                                                                                   spk2utt=spk2utt, spk2len=spk2len , num_speakers=num_speakers)
+                                                                                   spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers, sample_2x_neg=FLAGS.sample_2x_neg)
                 
                             input_window_1, input_window_2, labels = shuffle(input_window_1, input_window_2, labels)
                 
@@ -1246,7 +1253,7 @@ def train(utt_id_list, spk2utt=None, spk2len=None, num_speakers=None):
                 input_window_1, input_window_2, labels = get_batch_k_samples(idlist=utt_id_list, window_length=FLAGS.window_length, 
                                                                                    window_neg_length=FLAGS.window_neg_length, left_contexts=FLAGS.left_contexts,
                                                                                    right_contexts=FLAGS.right_contexts, k=FLAGS.negative_samples, 
-                                                                                   spk2utt=spk2utt, spk2len=spk2len , num_speakers=num_speakers)
+                                                                                   spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers, sample_2x_neg=FLAGS.sample_2x_neg)
                 
                 out, train_loss = model.step(sess, input_window_1, input_window_2, labels)
                 train_losses.append(train_loss)
@@ -1299,7 +1306,7 @@ def test_sampling(utt_id_list, spk2utt=None, spk2len=None, num_speakers=0 ):
     input_window_1, input_window_2, labels = get_batch_k_samples(idlist=utt_id_list, window_length=FLAGS.window_length, 
                                                                        window_neg_length=FLAGS.window_neg_length, left_contexts=FLAGS.left_contexts,
                                                                        right_contexts=FLAGS.right_contexts, k=FLAGS.negative_samples, debug=True,
-                                                                       spk2utt=spk2utt, spk2len=spk2len , num_speakers=num_speakers)
+                                                                       spk2utt=spk2utt, spk2len=spk2len , num_speakers=num_speakers, sample_2x_neg=FLAGS.sample_2x_neg)
     
     batch_size = len(input_window_1)
     

@@ -20,6 +20,13 @@ import struct
 from utils import smart_open
 import io
 
+try:
+    import resource
+    filelimit=200000
+    resource.setrlimit(resource.RLIMIT_NOFILE, (filelimit,filelimit))
+except:
+    print('Kaldi_io: tried increasing the open file limit to', filelimit, 'but it didnt work. If you have many matrices and want mmap support for kaldi io, consider increasing the global system limit for open files.')
+
 def readString(f):
     s = b""
     while True:
@@ -84,7 +91,7 @@ def readMemmapCache(memmap_dir='', memmap_dtype='float32'):
                 line = line[:-1]
             split = line.split()
             uttid = split[0]
-            featshape = (int(split[0]), int(split[1]))
+            featshape = (int(split[1]), int(split[2]))
             feature_mmap = numpy.memmap(memmap_dir + '/' + uttid, dtype=memmap_dtype, mode='r', shape=featshape)
             
             uttids.append(uttid)
