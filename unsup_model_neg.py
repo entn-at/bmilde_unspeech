@@ -109,7 +109,7 @@ flags.DEFINE_integer("fc_size", 512 , "Fully connected size at the end of the ne
 flags.DEFINE_boolean("first_layer_tanh", True, "Whether tanh should be used for the output conv1d filters in end-to-end networks.")
 flags.DEFINE_boolean("first_layer_log1p", True, "Whether log1p should be applied to the output of the conv1d filters.")
 
-flags.DEFINE_string("embedding_transformation", "BaselineDnn", "What network to use for the embeddings computation. Vgg16, DenseNet, BaselineDnn, HighwayDnn.")
+flags.DEFINE_string("embedding_transformation", "Vgg16big", "What network to use for the embeddings transformation computation. One of the following: Vgg16, Vgg16big (default), ResNet, Resnet_v2_50_small, Resnet_v2_50, Resnet_v2_101, Inception_Resnet_v2, HighwayDnn, BaselineDnn.")
 
 flags.DEFINE_integer("dense_block_filters", 5,  "Number of filters inside a conv2d in a dense block.")
 flags.DEFINE_integer("dense_block_layers_connected", 3,  "Number of layers inside dense block.")
