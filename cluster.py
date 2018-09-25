@@ -652,7 +652,7 @@ def corr_phn(ark_file, alignment_dir, fileset='train', limit=5000, cmudict_sort=
         
 
 #def cluster_speaker(ark_file, dbscan_eps=0.0005, dbscan_min_samples=3, utt_2_spk = None, output_utt_2_spk = None, tsne_viz=False, n_jobs=4, range_search=False, use_gpu=True):
-def cluster_speaker(ark_file, half_index=-1, dbscan_eps=0.0005, dbscan_min_samples=3,     min_cluster_sizes_str = "5",
+def cluster_speaker(ark_file, cluster_algo='HDBSCAN', half_index=-1, dbscan_eps=0.0005, dbscan_min_samples=3, min_cluster_sizes_str = "5",
     min_samples_str = "3", utt_2_spk = None, output_utt_2_spk = None, fileset= 'dev', tsne_viz=False, n_jobs=4,
     db_scan_range_search=False, hdb_scan_range_search=False, normalize=True, do_save_result=True, use_gpu=False):
 
@@ -771,23 +771,6 @@ def cluster_speaker(ark_file, half_index=-1, dbscan_eps=0.0005, dbscan_min_sampl
         print('bestARI:', bestARI)
         print('bestConf:',bestConf)
     
-#<<<<<<< HEAD
-#    #min_cluster_sizes = [2,3,4,5,6,7,8,9,10,11,12]
-#    #min_samples = [2,3,4,5,6,7,8,9,10]
-#=======
-#    if use_gpu:
-#        clustering_labels = cluster_dbscan_gpu(feats, dbscan_eps, dbscan_min_samples)
-#    else:
-#        #cluster_algo = DBSCAN(eps=dbscan_eps, min_samples=dbscan_min_samples, metric=pairwise_pos_neg_dot_distance, n_jobs=28)
-#        cluster_algo = HDBSCAN(min_cluster_size=10, metric='euclidean', algorithm='best', core_dist_n_jobs=28)
-#        clustering = cluster_algo.fit(feats)
-#        clustering_labels = list(clustering.labels_)
-#                
-#    print('dbscan_eps', dbscan_eps, 'dbscan_min_samples', dbscan_min_samples)
-#    print('num clusters:', len(set(clustering_labels)))
-#    print(clustering_labels)
-#>>>>>>> 3ae8c233f81b69d8a9ff183eaa939f8490155225
-    
     min_cluster_sizes = [int(x) for x in min_cluster_sizes_str.split(',')]
     min_samples = [int(x) for x in min_samples_str.split(',')]
     
@@ -804,17 +787,26 @@ def cluster_speaker(ark_file, half_index=-1, dbscan_eps=0.0005, dbscan_min_sampl
             
             feat_key = ark_file.split('/')[-3] + '_' + str(min_cluster_size) + '_' + str(min_sample)
             
-            if  do_save_result:
+            if do_save_result:
                 save_result(feat_key, "cl_size", str(min_cluster_size))
                 save_result(feat_key, "min_s", str(min_sample))
             
-            print('Running HDBSCAN with min_cluster_size', min_cluster_size, 'min_samples', dbscan_min_samples)
-            #cluster_algo = DBSCAN(eps=dbscan_eps, min_samples=dbscan_min_samples, metric=pairwise_pos_neg_dot_distance, n_jobs=28)
-            cluster_algo = HDBSCAN(min_cluster_size=min_cluster_size, min_samples=min_sample, metric='euclidean', algorithm='best', core_dist_n_jobs=28)
+            if cluster_algo == 'HDBSCAN':
+                print('Running HDBSCAN with min_cluster_size', min_cluster_size, 'min_samples', dbscan_min_samples)
+                cluster_algo = HDBSCAN(min_cluster_size=min_cluster_size, min_samples=min_sample, metric='euclidean', algorithm='best', core_dist_n_jobs=28)
+            elif cluster_algo == 'DBSCAN':
+                print('Running DBSCAN with dbscan_eps', dpscan_eps, 'dbscan_min_samples', dbscan_min_samples)
+                cluster_algo = DBSCAN(eps=dbscan_eps, min_samples=dbscan_min_samples, metric='euclidean', n_jobs=28)
+            elif cluster_algo =='kmeans':
+                print('kmeans clustering not available for speaker clustering yet. Exiting.')
+                sys.exit(-1)
+            else:
+                print('cluster_algo:', cluster_algo, 'not supported. Exiting.')
+            
             clustering = cluster_algo.fit(feats)
             clustering_labels = list(clustering.labels_)
                         
-            print('Num clusters:', len(set(clustering_labels)))
+            print('Num of clusters (as determined by density clustering):', len(set(clustering_labels)))
             print(clustering_labels)
             
             sys.stdout.flush()
@@ -841,8 +833,7 @@ def cluster_speaker(ark_file, half_index=-1, dbscan_eps=0.0005, dbscan_min_sampl
                 if do_save_result:
                     save_result(feat_key, 'outliers_'  + fileset, str(num_outliers))
                     save_result(feat_key, 'clusters_'  + fileset, str(len(set(clustering_labels))))
-                    
-                
+                        
                 print('Number of outliers:',num_outliers, '(',number_format % (float(num_outliers)*100.0 / float(len(uttids))) ,'%)')
         
                 ARI = metrics.adjusted_rand_score(ground_truth_utt_2_spk_int, clustering_labels)
@@ -957,7 +948,7 @@ def cluster_speaker(ark_file, half_index=-1, dbscan_eps=0.0005, dbscan_min_sampl
         plt.show()
     
 
-    if output_utt_2_spk is not None:
+    if output_utt_2_spk is not None and output_utt_2_spk.lower() != 'none' and output_utt_2_spk.strip() != '':
         if len(min_cluster_sizes) > 1 or len(min_samples) > 1:
             print('Not saving clustering result, since we searched a full range. Rerun with a single min_cluster_size and min_samples parameter.')
         else:
@@ -977,30 +968,37 @@ def cluster_speaker(ark_file, half_index=-1, dbscan_eps=0.0005, dbscan_min_sampl
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='')
-    parser.add_argument('-n', '--n-clusters', dest='n_clusters', help='The number of clusters, if kmeans is used.', type=int, default = 42)
-    parser.add_argument('-f', '--wav-files', dest='wav_files', help='Original wav files. Kaldi format file, uttid -> wavfile.', type=str, default = '')
-    parser.add_argument('-a', '--input-ark', dest='ark_file', help='Input ark with the computed features.', type=str, default = 
+    parser.add_argument('--mode', dest='mode', help='(cluster_speaker|cluster_phn|corr_phn|samedifferent) Default: cluster_speaker', type=str, default = 'cluster_speaker')
+    parser.add_argument('-a', '--cluster-algorithm', dest='cluster_algorithm', help='Cluster algorithm (HDBSCAN, DBSCAN, kmeans).', type=str, default = 'HDBSCAN')
+    parser.add_argument('-n', '--n-clusters', dest='n_clusters', help='The number of clusters (only applicable if kmeans is used as cluster algorithm)', type=int, default = 42)
+
+    parser.add_argument('--hdbscan_min_cluster_sizes',  dest='hdbscan_min_cluster_sizes', help='hdbscan min_cluster_sizes parameter, minimal number of nodes that form a cluster. Either a single value or a comma separated list of values.', default="5") #default="3,5,8")
+    parser.add_argument('--hdbscan_min_samples_str', dest='hdbscan_min_samples_str', help='hdbscan min_samples_str parameter, influences outlier behaviour, usually set to the same value as min_cluster_size or a smaller number. Either a single value or a comma separated list of values.', default="3") #default="3,5,8")
+    
+    parser.add_argument('--dbscan-eps', dest='eps', help='Eps range parameter for DBSCAN', type=float, default=0.05)    
+
+    parser.add_argument('-f', '--wav-files', dest='wav_files', help='Original wav files. Kaldi format file, uttid -> wavfile. Only used in cluster_phn.', type=str, default = '')
+    parser.add_argument('-i', '--input-ark', dest='ark_file', help='Input ark with the precomputed features.', type=str, default = 
                         #"feats/feats_transVgg16big_nsampling_rnd_win64_neg_samples4_lcontexts2_rcontexts2_flts40_embsize100_fc_size2048_unit_norm_var_dropout_keep0.9_l2_reg0.0005_featinput_unnormalized.feats.ark_dot_combine_tied_embs/%set/feats.ark")
                         #'feats/feats_transVgg16big_nsampling_rnd_win128_neg_samples4_lcontexts2_rcontexts2_flts40_embsize100_fc_size2048_unit_norm_var_dropout_keep0.9_l2_reg0.0005_featinput_unnormalized.feats.ark_dot_combine_tied_embs/%set/feats.ark')
                         #'feats/tedlium_ivectors_sp/%set/ivector_online.ark') #'feats/feats_transVgg16big_nsampling_same_spk_win64_neg_samples4_lcontexts2_rcontexts2_flts40_embsize100_fc_size512_unit_norm_var_dropout_keep0.9_l2_reg0.0005_featinput_unnormalized.feats.ark_dot_combine_tied_embs/test/feats.ark')
                         '/scratch/unspeech_diag/tedlium_train_diag_unspeech_phn_32_stride1/train_cleaned_sp_comb/ivector_online.ark')
                         #'/scratch/unspeech_diag/tedlium_train_diag_unspeech_no_2x_32_stride1/train_cleaned/ivector_online.ark')
     
+    parser.add_argument('--utt2spk', dest='utt2spk', help='Gold utt2spk. Only Needed to compare clusters and calculate cluster scores. Default: none (= no scores)', type=str, default = 'none') #'feats/tedlium/%set/utt2spk_lium')
+    parser.add_argument('--output_utt2spk', dest='output_utt2spk', help='Where to store speaker output speaker clusters, accepts % placeholders for some parameters. Default: feats/tedlium/%set/cl_utt2spk_min_cl%minclustersize_min_s_%minsample_%feat', type=str, default = 'feats/tedlium/%set/cl_utt2spk_min_cl%minclustersize_min_s_%minsample_%feat')
+    
+    # opional params
     parser.add_argument('-hs', '--hopping-size', dest='hopping_size', help='Hopping size, in ms.', type=int, default=-1)
     parser.add_argument('-w', '--window-size', dest='window_size', help='Window size, in ms.', type=int, default=-1)
-    parser.add_argument('-s', '--subsampling', dest='subsample', help='Subsample the input corpus (probability to take input frame from 0.0 to 1.0). Set to 1.0 to take all the data', type=float, default=0.01)
-    parser.add_argument('-r', '--sampling-rate', dest='samplingrate', help='Sampling rate of the corpus', type=int, default=16000)
-    parser.add_argument('--utt2spk', dest='utt2spk', help='Needed to compare speaker clusters and calculate scores.', type=str, default = 'feats/tedlium/%set/utt2spk_lium')
-    parser.add_argument('--output_utt2spk', dest='output_utt2spk', help='Where to store speaker output speaker clusters.', type=str, default = 'feats/tedlium/%set/cl_utt2spk_min_cl%minclustersize_min_s_%minsample_%feat')
+    parser.add_argument('-s', '--subsampling', dest='subsample', help='Subsample the input corpus (probability to take input frame from 0.0 to 1.0), only applicable for visualisation. Set to 1.0 to take all the data (default: 0.01).', type=float, default=0.01)
+    parser.add_argument('-r', '--sampling-rate', dest='samplingrate', help='Sampling rate of the corpus.', type=int, default=16000)
     parser.add_argument('--set', dest='set', help='e.g. (train|dev|test)', type=str, default = 'test')
-    parser.add_argument('--mode', dest='mode', help='(cluster_speaker|cluster_phn|corr_phn|samedifferent)', type=str, default = 'tsne_phn')
-    parser.add_argument('--hdbscan_min_cluster_sizes',  dest='hdbscan_min_cluster_sizes', help='hdbscan min_cluster_sizes parameter, either a single value or a comma separated list ov values.', default="5") #default="3,5,8")
-    parser.add_argument('--hdbscan_min_samples_str', dest='hdbscan_min_samples_str', help='hdbscan min_samples_str parameter, either a single value or a comma separated list ov values.', default="3") #default="3,5,8")
     parser.add_argument('--half_index', dest='half_index', help='Cut the feature representation at a certain point (e.g. useful if you want to cut a combined pos/neg unspeech embedding vector), set to -1 to disable.',  type=int, default=-1)
-    parser.add_argument('--max_spks', dest='max_spks', help='Maximum speakers', type=int, default=100)
-    parser.add_argument('--metric', dest='metric', help='Metric to use for comparisions', type=str, default='euclidean')
+    parser.add_argument('--max_spks', dest='max_spks', help='Maximum number of speakers for visualization purposes', type=int, default=100)
+    parser.add_argument('--metric', dest='metric', help='Metric to use for vector comparisions (default: euclidean)', type=str, default='euclidean')
     parser.add_argument('--random_seed',  dest='random_seed', help='Random seed for e.g. maximum speakers (so that the same speakers get selected accross experiments.)', type=int, default=42)
-    parser.add_argument('--alignment_dir',dest='alignment_dir', help='Kaldi alignment directory, for correlating phones or for visualisation purposes. Should contain a all.ctm and phones.txt file. See https://www.eleanorchodroff.com/tutorial/kaldi/kaldi-forcedalignment.html',
+    parser.add_argument('--alignment_dir',dest='alignment_dir', help='Kaldi alignment directory, for correlating phones or for visualisation purposes only. Should contain a all.ctm and phones.txt file. See https://www.eleanorchodroff.com/tutorial/kaldi/kaldi-forcedalignment.html',
                         type=str, default='/scratch/unspeech_diag/tri3_train_cleaned_diag/') 
 
     args = parser.parse_args()
@@ -1015,7 +1013,7 @@ if __name__ == '__main__':
     elif args.mode == 'tsne_phn':    
         tsne(ark_file=args.ark_file, alignment_dir=args.alignment_dir)
     elif args.mode == 'cluster_speaker':
-        cluster_speaker(args.ark_file, half_index=args.half_index , dbscan_eps=0.05, dbscan_min_samples=3, min_cluster_sizes_str = args.hdbscan_min_cluster_sizes,
+        cluster_speaker(args.ark_file, cluster_algo=args.cluster_algorithm, half_index=args.half_index, dbscan_eps=args.eps, dbscan_min_samples=3, min_cluster_sizes_str = args.hdbscan_min_cluster_sizes,
     min_samples_str = args.hdbscan_min_samples_str, utt_2_spk = args.utt2spk, output_utt_2_spk = args.output_utt2spk, fileset = args.set)
     else:
         print('mode:', args.mode, 'not supported.')
