@@ -128,7 +128,7 @@ flags.DEFINE_boolean("unit_normalize_var", False, "Use a trainable var to scale 
 flags.DEFINE_integer("negative_samples", 4, "How many negative samples to generate.")
 flags.DEFINE_integer("test_perf_samples", 100, "How many batches to generate for testing accuracy.")
 
-flags.DEFINE_boolean("test_perf", True, "When generating features, test accuracy by randomly sampling batches and compare the prediction quality of the model.")
+flags.DEFINE_boolean("test_perf", False, "When generating features, test accuracy by randomly sampling batches and compare the prediction quality of the model.")
 flags.DEFINE_boolean("debug_visualize", False , "Visualize the generated features.")
 flags.DEFINE_boolean("debug_visualize_batch", False , "Visualize the generated batches.")
 
