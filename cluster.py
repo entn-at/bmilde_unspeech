@@ -836,15 +836,17 @@ def cluster_speaker(ark_file, cluster_algo='HDBSCAN', half_index=-1, dbscan_eps=
                         
                 print('Number of outliers:',num_outliers, '(',number_format % (float(num_outliers)*100.0 / float(len(uttids))) ,'%)')
         
-                ARI = metrics.adjusted_rand_score(ground_truth_utt_2_spk_int, clustering_labels)
-                print('ARI score:', number_format % ARI)
-                vmeasure = metrics.v_measure_score(ground_truth_utt_2_spk_int, clustering_labels)        
-                print('V-measure:', number_format % vmeasure)
+                #This would compute scores with all outliers in the same cluster:
+
+                #ARI = metrics.adjusted_rand_score(ground_truth_utt_2_spk_int, clustering_labels)
+                #print('ARI score:', number_format % ARI)
+                #vmeasure = metrics.v_measure_score(ground_truth_utt_2_spk_int, clustering_labels)        
+                #print('V-measure:', number_format % vmeasure)
         
                 ARI2 = metrics.adjusted_rand_score(ground_truth_utt_2_spk_int, clustering_labels2)
                 print('ARI score (each outlier its own cluster):', number_format % ARI2)
                 vmeasure2 = metrics.v_measure_score(ground_truth_utt_2_spk_int, clustering_labels2)
-                print('V-measure (each outlier its own cluster):', number_format % vmeasure2)
+                print('NMI / V-measure (each outlier its own cluster):', number_format % vmeasure2)
         
                 if do_save_result:
                     save_result(feat_key, 'ARI_'  + fileset, number_format % ARI2)
@@ -855,9 +857,9 @@ def cluster_speaker(ark_file, cluster_algo='HDBSCAN', half_index=-1, dbscan_eps=
                 cluster_pairwise = pdist(np.asarray(clustering_labels2)[:,np.newaxis], metric='chebyshev') < 1
                 groundtruth_pairwise = pdist(np.asarray(ground_truth_utt_2_spk_int)[:,np.newaxis], metric='chebyshev') < 1
         
+                #scitkits recall_score and precision_score is slow unfortunatly
                 #pairwise_recall = metrics.recall_score(groundtruth_pairwise, cluster_pairwise , pos_label=True, average='binary')
-                #pairwise_precision = metrics.precision_score(groundtruth_pairwise, cluster_pairwise , pos_label=True, average='binary')
-        
+                #pairwise_precision = metrics.precision_score(groundtruth_pairwise, cluster_pairwise , pos_label=True, average='binary') 
                 #print('scikit learn recall / precision:', pairwise_recall, pairwise_precision)
         
                 # efficient binary comparision, since the pairwise matrix can be huge for large n
