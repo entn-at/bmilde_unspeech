@@ -689,7 +689,7 @@ class UnsupSeech(object):
                             outputs, state = tf.nn.static_rnn(cell, sequence, dtype=tf.float32) #, sequence_length=[seq_len]) 
                             pooled = outputs[-1]
     
-                        needs_flattening = False
+                            needs_flattening = False
 
                        # if FLAGS.embedding_transformation == "Static_GRU":
                        #     needs_flattening = False
