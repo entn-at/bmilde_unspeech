@@ -684,7 +684,9 @@ class UnsupSeech(object):
                         if FLAGS.embedding_transformation == "Static_LSTM":
                             cell = tf.contrib.rnn.LSTMCell(FLAGS.rnn_hidden_cells)
     
-                            outputs, state = tf.nn.static_rnn(cell, input_window, dtype=tf.float32) #, sequence_length=[seq_len]) 
+                            # reorganize input window as a sequence (list) with slicing
+                            sequence = [input_window[:,num] for num in range(window_length)]
+                            outputs, state = tf.nn.static_rnn(cell, sequence, dtype=tf.float32) #, sequence_length=[seq_len]) 
                             pooled = outputs[-1]
     
                         needs_flattening = False
