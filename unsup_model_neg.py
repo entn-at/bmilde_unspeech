@@ -55,6 +55,7 @@ FLAGS = tf.app.flags.FLAGS
 
 flags.DEFINE_string("filelist", "filelist.english.train", "Kaldi scp file if using kaldi feats, or for end-to-end learning a simple filelist, one wav file per line, optionally also an id (id wavfile per line).")
 flags.DEFINE_string("spk2utt", "", "Optional, but required for per speaker negative sampling. ")
+flags.DEFINE_string("ali_ctm", "" , "Alignments for all ids in ctm format")
 flags.DEFINE_boolean("end_to_end", False, "Use end-to-end learning (Input is 1D). Otherwise input is 2D like FBANK or MFCC features.")
 flags.DEFINE_integer("feat_size", 40, "Size of the features inner dimension (only used if not using end-to-end training).")
 
@@ -167,10 +168,13 @@ flags.DEFINE_string("output_feat_format", "kaldi_bin", "Feat format")
 
 flags.DEFINE_string("device","/gpu:1", "Computation device, e.g. /gpu:1 for 1st GPU.")
 
+# Format: dict, utterance_id -> numpy array (either raw sound data or fbank/mfcc features
 training_data = {}
 #TODO load this correctly. Format: dict, spk -> list utt ids
 spk2utt_data = {}
 
+# Format: dict, utterance_id -> list of (start,end,id) element tuples
+alignment_data = {}
 
 #https://stackoverflow.com/questions/3985619/how-to-calculate-a-logistic-sigmoid-function-in-python
 def sigmoid(x):  
@@ -330,7 +334,7 @@ def get_random_audiosample(idlist, idlist_size, window_size, random_id=None, spk
         # sample over a random file, if no specific one was specified
         if spk_id is None and random_id is None:
             random_id_num = int(math.floor(np.random.random_sample() * float(idlist_size)))
-            # if spk2utt is supplied, we sample a speaker first, then a utterance id
+            # if spk2utt is supplied, we sample a speaker first, then a new utterance id 
             if spk2utt is not None:
                 random_spk_num = int(math.floor(np.random.random_sample() * float(num_speakers)))
                 spk_id = spk2utt_keys[random_spk_num]
@@ -378,6 +382,7 @@ def get_batch_k_samples(idlist, window_length, window_neg_length, spk2utt=None, 
     
     for i in xrange(FLAGS.batch_size*(k+1)):
         if i%(k+1)==0:
+            # sample all positive pairs at once
             if debug:
                 print('Selecting true sample.')
             # Get a large sample to fit all the windows. Also get a speaker id, if we have speaker information (spk2utt!=None) and want to sample per speaker. 
@@ -402,7 +407,7 @@ def get_batch_k_samples(idlist, window_length, window_neg_length, spk2utt=None, 
                         print('[true sample] Warning, window size not correct in get_batch_k_samples:', 'shape(w):', window.shape, 'shape(neg_w):' ,window_neg.shape, '. I will ignore this sample.')
             last_target_window = window
         else:
-            
+            # sample k negative pairs
             if debug:
                 print('Selecting random sample from speaker:',spk_id)
             # Select two random samples. If we do per speaker sampling, then spk_id!= None and two samples from the same speaker are sampled.
@@ -431,6 +436,169 @@ def get_batch_k_samples(idlist, window_length, window_neg_length, spk2utt=None, 
     #    self.first_call_to_get_batch = False
 
     return window_batch,window_neg_batch,labels
+
+def get_random_aligned_audiosample(idlist, idlist_size, num_consecutive_elements=1, random_id=None, spk_id=None, spk2utt=None, spk2utt_keys=None , num_speakers=0, spk2len=None, debug=False):
+    
+    if debug:
+        print('num_speakers:', num_speakers)
+    if random_id is None:
+        # sample over a random file, if no specific one was specified
+        if spk_id is None and random_id is None:
+            random_id_num = int(math.floor(np.random.random_sample() * float(idlist_size)))
+            # if spk2utt is supplied, we sample a speaker first, then a new utterance id 
+            if spk2utt is not None:
+                random_spk_num = int(math.floor(np.random.random_sample() * float(num_speakers)))
+                if debug:
+                    print('random_spk_num:', random_spk_num)
+                spk_id = spk2utt_keys[random_spk_num]
+                if debug:
+                    print(spk2utt_keys)
+                    print('spk_id:', spk_id)
+                random_id_num = int(math.floor(np.random.random_sample() * float(spk2len[spk_id])))
+                random_id = spk2utt[spk_id][random_id_num]
+                if debug:
+                    print('[get_random_audiosample] Selecting sample:', 'speaker:', spk_id, 'uttid:', random_id)
+    
+            else:
+                random_id = idlist[random_id_num]
+        else:
+            if spk_id is not None:
+                if debug:
+                    print(spk2utt[spk_id],spk2len[spk_id])
+                random_id_num = int(math.floor(np.random.random_sample() * float(spk2len[spk_id])))
+                random_id = spk2utt[spk_id][random_id_num]  
+            else:
+                random_id = idlist[random_id_num]
+            if debug:
+                print('[get_random_audiosample] Selecting sample:', 'speaker:',spk_id, 'uttid:', random_id)
+      
+    audio_data = training_data[random_id]
+    align_data = alignment_data[random_id]
+   
+    if debug:
+        print('align data:', align_data)
+ 
+    len_align_data = len(align_data)
+    
+    max_pos = len_align_data - num_consecutive_elements
+    random_element_pos_num = int(math.floor(np.random.random_sample() * max_pos))
+    
+    start_pos = align_data[random_element_pos_num][0]
+    end_pos = align_data[random_element_pos_num+num_consecutive_elements][1]
+    
+    if debug:
+        print('[get_random_audiosample] Select position:', start_pos,'window_size:',end_pos - start_pos, 'start element:', random_element_pos_num, 'end element', random_element_pos_num+num_consecutive_elements)
+    
+    # we'll return the audio data, alignment data and speaker id
+    return np.array(audio_data[start_pos:end_pos]), align_data[random_element_pos_num:random_element_pos_num+num_consecutive_elements], spk_id
+
+# Similar to get_batch_k_samples, but this samples using aligned start / stop position information. 
+def get_batch_k_aligned_samples(idlist, spk2utt=None, spk2len=None, num_speakers = 0, left_contexts=0, right_contexts=1 , k=4, sample_2x_neg=True, pad_to_maximum_length=True, debug=False):            
+    window_batch = []
+    window_neg_batch = []
+    labels = []
+    window_sequence_lengths = []
+    window_neg_sequence_lengths = []
+    
+    idlist_size = len(idlist)
+    spk_id=None
+    
+    spk2utt_keys = None
+    if spk2utt is not None:
+        if debug:
+            print(spk2utt)
+        spk2utt_keys = list(spk2utt.keys())
+    
+    num_consecutive_elements = left_contexts + right_contexts + 1
+    
+    for i in xrange(FLAGS.batch_size*(k+1)):
+        if i%(k+1)==0:
+            # sample all positive pairs at once
+            if debug:
+                print('Selecting true sample.')
+            # Get a large sample to fit all the windows. Also get a speaker id, if we have speaker information (spk2utt!=None) and want to sample per speaker. 
+            combined_sample, align_data, spk_id = get_random_aligned_audiosample(idlist, idlist_size, num_consecutive_elements, spk2utt=spk2utt, spk2utt_keys=spk2utt_keys,  num_speakers=num_speakers, spk2len=spk2len, debug=debug)
+            # Getting all the context pairs, e.g. context_num goes from -2 to 2 for left_contexts=2 and right_contexts=2
+            
+            if debug:
+                print('Combined sample shape:', combined_sample.shape, 'align_data:', align_data)
+            
+            offset_pos = align_data[0][0]
+            center_window_start_pos = align_data[left_contexts][0] - offset_pos
+            center_window_end_pos = align_data[left_contexts][1] - offset_pos
+            for context_num in xrange(num_consecutive_elements):
+                neg_start_pos = align_data[context_num][0] - offset_pos
+                neg_end_pos = align_data[context_num][1] - offset_pos
+                if context_num != left_contexts:
+                    window = combined_sample[center_window_start_pos:center_window_end_pos]
+                    window_neg = combined_sample[neg_start_pos:neg_end_pos] 
+                    
+                    if window.shape[0] > 0 and window_neg.shape[0] > 0:
+                        
+                        if debug:
+                            print('Adding window of shape:',window.shape, 'positive context of shape:',window_neg.shape)
+                        
+                        # Assign label 1, if both windows are consecutive    
+                        labels.append(1.0)
+                        window_batch.append(window)
+                        window_neg_batch.append(window_neg)
+                        #sequence_lengths.append((len(window),len(window_neg)))
+                        window_sequence_lengths.append(len(window))
+                        window_neg_sequence_lengths.append(len(window_neg))
+                    else:
+                        print('[true sample] Warning, window size not correct in get_batch_k_samples:', 'shape(w):', window.shape, 'shape(neg_w):' ,window_neg.shape, '. I will ignore this sample.')
+            last_target_window = window
+        else:
+            # sample k negative pairs
+            if debug:
+                print('Selecting random negative sample from speaker:',spk_id)
+            # Select two random samples. If we do per speaker sampling, then spk_id!= None and two samples from the same speaker are sampled.
+            # Otherwise, if random_file_num is not None, we do per utterance sampling.
+            
+            if sample_2x_neg:
+                window, _ , _ = get_random_aligned_audiosample(idlist, idlist_size, num_consecutive_elements=1, random_id=None, spk2utt=spk2utt, spk_id=spk_id, spk2utt_keys=spk2utt_keys, num_speakers=num_speakers, spk2len=spk2len)
+            else:
+                window = last_target_window
+            
+            window_neg, _, _ = get_random_aligned_audiosample(idlist, idlist_size, num_consecutive_elements=1, random_id=None, spk2utt=spk2utt, spk_id=spk_id, spk2utt_keys=spk2utt_keys, num_speakers=num_speakers, spk2len= spk2len)
+            
+            if window.shape[0] > 0 and window_neg.shape[0] > 0:
+                # Assign label 0, if both windows are randomly sampled
+                labels.append(0.0)
+            
+                window_batch.append(window)
+                window_neg_batch.append(window_neg)
+                
+                if debug:
+                    print('Adding window of shape:', window.shape, 'positive context of shape:', window_neg.shape)
+            else:
+                print('[false sample] Warning, window size not correct in get_batch_k_samples:', 'shape(w):', window.shape, 'shape(neg_w):' ,window_neg.shape, '. I will ignore this sample.')
+
+    labels = np.asarray(labels).reshape(-1,1)
+
+    if pad_to_maximum_length:
+        max_window_len = max(window_sequence_lengths)
+        max_window_neq_len = max(window_neg_sequence_lengths)
+        
+        if debug:
+            print(max_window_len)
+            print(max_window_neq_len)
+        
+        for i,window in enumerate(window_batch):
+            new_window = np.zeros((max_window_len,window.shape[1]))
+            new_window[0:window.shape[0]] = window
+            window_batch[0] = new_window
+            
+        for i,window in enumerate(window_neg_batch):
+            new_window = np.zeros((max_window_neq_len,window.shape[1]))
+            new_window[0:window.shape[0]] = window
+            window_batch[1] = new_window
+            
+    #if self.first_call_to_get_batch:
+    #    print("window_batch,",[elem[:5] for elem in window_batch],"window_neg_batch,",[elem[:5] for elem in window_neg_batch],"labels",labels) 
+    #    self.first_call_to_get_batch = False
+
+    return window_batch, window_neg_batch, labels, window_sequence_lengths, window_neg_sequence_lengths
 
 class UnsupSeech(object):
     """
@@ -487,7 +655,7 @@ class UnsupSeech(object):
         self.left_contexts = left_contexts
         self.right_contexts = right_contexts
 
-        # feat_size of 0 means were gonig end-to-end with 1d samples
+        # feat_size of 0 means were have end-to-end with 1d samples
         if feat_size == 0:
             # window 1 is fixed
             self.input_window_1 = tf.placeholder(tf.float32, [None, window_length], name="input_window_1")
@@ -499,6 +667,10 @@ class UnsupSeech(object):
             self.input_window_1 = tf.placeholder(tf.float32, [None, window_length, feat_size], name="input_window_1")
             # window 2 is either consecutive, or randomly sampled
             self.input_window_2 = tf.placeholder(tf.float32, [None, window_neg_length, feat_size], name="input_window_2")
+        
+        if FLAGS.dynamic_windows:
+            self.input_window_1 = tf.placeholder(tf.float32, [None, None], name="input_window_1")
+            self.input_window_2 = tf.placeholder(tf.float32, [None, None], name="input_window_2")
         
         self.labels = tf.placeholder(tf.float32, [None, 1], name="labels")
         
@@ -1316,49 +1488,72 @@ def compute_spk2len(spk2utt):
 
 def test_sampling(utt_id_list, spk2utt=None, spk2len=None, num_speakers=0 ):
     print('Generating sample:')
-    print('test_sampling:', spk2utt[0])
-    input_window_1, input_window_2, labels = get_batch_k_samples(idlist=utt_id_list, window_length=FLAGS.window_length, 
+    #print('test_sampling:', spk2utt[0])
+    
+    if FLAGS.ali_ctm != "":
+        input_window_1, input_window_2, labels, win_lengths, win_neg_lengths = get_batch_k_aligned_samples(idlist=utt_id_list, spk2utt=spk2utt, spk2len=spk2len, 
+                                                                                                         num_speakers=num_speakers, left_contexts=FLAGS.left_contexts, right_contexts=FLAGS.right_contexts,
+                                                                                                         k=FLAGS.negative_samples, sample_2x_neg=False, 
+                                                                                                         debug=True, pad_to_maximum_length=True)
+    else:
+        input_window_1, input_window_2, labels = get_batch_k_samples(idlist=utt_id_list, window_length=FLAGS.window_length, 
                                                                        window_neg_length=FLAGS.window_neg_length, left_contexts=FLAGS.left_contexts,
-                                                                       right_contexts=FLAGS.right_contexts, k=FLAGS.negative_samples, debug=True,
-                                                                       spk2utt=spk2utt, spk2len=spk2len , num_speakers=num_speakers, sample_2x_neg=FLAGS.sample_2x_neg)
+                                                                       right_contexts=FLAGS.right_contexts, k=FLAGS.negative_samples,  debug=True,
+                                                                       spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers, sample_2x_neg=FLAGS.sample_2x_neg)
     
     batch_size = len(input_window_1)
     
     print('num_speakers:', num_speakers)
     print('batch_size:', batch_size)
+    
+    print('length of input_window_1:',len(input_window_1))
+    print('length of input_window_2:',len(input_window_2))
+    
     print('Now plotting sample.')
     
     plt.figure(0)
     
     task_length = 2*(FLAGS.right_contexts + FLAGS.left_contexts)
-    
+  
+   
     complete_window_seq = []
     for i in xrange(FLAGS.left_contexts):
         complete_window_seq.append(input_window_2[i])
-   
+ 
     complete_window_seq.append(input_window_1[0])
-     
+   
     for i in xrange(FLAGS.right_contexts):
         complete_window_seq.append(input_window_2[FLAGS.left_contexts+i])
+    
+    segment_lengths = [len(x) for x in complete_window_seq]
+    boundaries = np.cumsum(segment_lengths)
+    
+    print("segment_lengths:",segment_lengths)
+    print("boundaries:",boundaries)
     
     complete_window_seq = np.vstack(complete_window_seq)
     
     plt.imshow(complete_window_seq.T, interpolation=None, aspect='auto', origin='lower')
     
+    plt.axvline(x=-0.5)
+    for boundary in boundaries:
+        plt.axvline(x=(float(boundary)-0.5))
+    
     plt.figure(1)
     
     f, axarr = plt.subplots(task_length, sharex=True)
     
-    expect_shape = input_window_1[0].shape
-    for i in range(len(input_window_1)):
-        if input_window_1[i].shape != expect_shape:
-            print('warning:',i,input_window_1[i].shape)
-    
-    expect_shape = input_window_1[1].shape
-    for i in range(len(input_window_1)):
-        if input_window_2[i].shape != expect_shape:
-            print('warning:',i,input_window_2[i].shape)
-    
+    if FLAGS.ali_ctm == "":
+        expect_shape = input_window_1[0].shape
+        for i in range(len(input_window_1)):
+            if input_window_1[i].shape != expect_shape:
+                print('warning:',i,input_window_1[i].shape)
+        
+        expect_shape = input_window_1[1].shape
+        for i in range(len(input_window_1)):
+            if input_window_2[i].shape != expect_shape:
+                print('warning:',i,input_window_2[i].shape)
+        
     
     for i,ax in enumerate(axarr):
         print(input_window_1[i])
@@ -1387,6 +1582,13 @@ if __name__ == "__main__":
     #time.sleep(10)
 
     spk2utt, spk2len, num_speakers = None,None,None
+
+    if FLAGS.ali_ctm != '':
+        print("Reading alignment information from: " + FLAGS.ali_ctm)
+        alignment_data = utils.readAlignmentFile(FLAGS.ali_ctm) 
+    else:
+        print("No boundary information available (alignments information via --ali_ctm), sampling windows randomly.")
+    
 
     if FLAGS.end_to_end:
         utt_ids, filelist = utils.loadIdFile(FLAGS.filelist, 3000000)
@@ -1439,31 +1641,48 @@ if __name__ == "__main__":
             if FLAGS.gen_feats:
                 training_data = {key: value for (key, value) in zip(utt_id_list, features)} 
             else:
-                #make sure utterances are long enough if we are training
-                min_required_sampling_length = FLAGS.window_length + FLAGS.window_neg_length * (FLAGS.left_contexts + FLAGS.right_contexts)
-                
-                if FLAGS.tnse_viz_speakers:
-                    min_required_sampling_length = FLAGS.window_length
-                
-                print('min_required_sampling_length is:', min_required_sampling_length)
-                
-                #trim training data to minimum required sampling length
-                training_data = {key: value for (key, value) in zip(utt_id_list, features) if value.shape[0] > min_required_sampling_length}
-                
-                #also trim utt id list
-                utt_id_list = [myid for myid in utt_id_list if myid in training_data]
-                
-                print("Before filtering for minimum required length:", len(utt_id_list), "After filtering:", len(training_data.keys()))
+                if FLAGS.ali_ctm != '':
+                    #make sure utterances are long enough if we are training
+                    min_required_sampling_length = FLAGS.window_length + FLAGS.window_neg_length * (FLAGS.left_contexts + FLAGS.right_contexts)
+                    
+                    if FLAGS.tnse_viz_speakers:
+                        min_required_sampling_length = FLAGS.window_length
+                    
+                    print('min_required_sampling_length is:', min_required_sampling_length)
+                    
+                    #trim training data to minimum required sampling length
+                    training_data = {key: value for (key, value) in zip(utt_id_list, features) if value.shape[0] > min_required_sampling_length}
+                    
+                    #also trim utt id list
+                    utt_id_list = [myid for myid in utt_id_list if myid in training_data]
+                    
+                    print("Before filtering for minimum required length:", len(utt_id_list), "After filtering:", len(training_data.keys()))
+                else:
+                    min_required_sequence_length = FLAGS.left_contexts + FLAGS.right_contexts + 1
+                    
+                    print('min_required_sequence_length is:', min_required_sampling_length)
+                    
+                    #trim training data to minimum required sampling length and remove utterances without an aligment
+                    training_data = {key: value for (key, value) in zip(utt_id_list, features) if key in alignment_data and alignment_data[key] > min_required_sequence_length}
+                    
+                    print("Before filtering for minimum required length:", len(utt_id_list), "After filtering:", len(training_data.keys()))
+                    
+                    if len(training_data.keys()) == 0:
+                        print("No utterances left after filtering. Something looks wrong with your data, check if the uttids in your alignments file match your speech training data.")
+                        sys.exit(-10)
     
     if FLAGS.spk2utt != '' and FLAGS.spk2utt != 'fake':
         
         print('Loading speaker information from ', FLAGS.spk2utt)
         spk2utt = utils.loadSpk2Utt(FLAGS.spk2utt)
+        
+        spk2utt = dict(spk2utt)
+
         #print('spk2utt:',spk2utt)
         del_list = []
         # Removing unavailable uttids. Either deleted because they are too short, or if debug = True and the size of the trainingset is reduced, most utt_ids are not available.
         # This is important, because the sampler expects every utt_ids for every speaker to be in the training set.
-        for spk in spk2utt.keys():
+        for spk in list(spk2utt.keys()):
             #print(spk2utt[spk])
             spk2utt[spk] = [elem for elem in spk2utt[spk] if elem in training_data]
         
@@ -1471,15 +1690,20 @@ if __name__ == "__main__":
                 del_list.append(spk)
         for spk in del_list:
             del spk2utt[spk]
-       
+      
+        print('spk2utt:', spk2utt) 
         spk2len = compute_spk2len(spk2utt)
         
         print('spk2len:',spk2len)
         
         num_speakers = len(spk2len.keys())
+
+        print('num_speakers:',spk2len)
+
     else:
         print("No speaker information supplied, spk2utt is empty.")
-        
+    
+
     if FLAGS.test_sampling:
         test_sampling(utt_id_list, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers)
     if FLAGS.gen_feats:

@@ -75,13 +75,28 @@ def undiscretize(signal, mu=255.0):
     signal = np.fmin(1.0,signal)
     return signal
 
-def readWordPosFile(filename,pos1=0,pos2=1):
-    unalign_list = []
+
+def readWordPosFile(filename,id_pos=0, pos1=2,pos2=3,elem_pos=-1):
+    unalign_list = defaultdict(list)
     with open(filename) as f:
         for line in f.readlines():
             split = line[:-1].split(" ")
-            unalign_list.append((float(split[pos1]), float(split[pos2])))
+            if elem_pos != -1:
+                unalign_list[split[id_pos]] += [(float(split[pos1]), float(split[pos2]), int(split[elem_pos]))]
+            else:
+                unalign_list[split[id_pos]] += [(float(split[pos1]), float(split[pos2]))]
     return unalign_list
+
+def readAlignmentFile(filename, use_endpos=True, eps = 0.001):
+    alignment_frames = {}
+    alignment = readWordPosFile(filename, id_pos=0, pos1=2, pos2=3, elem_pos=4)
+    for key in alignment:
+        seq_elems = alignment[key]
+        if use_endpos:
+            alignment_frames[key] = [(int(elem[0] * 100.0 + eps), int(elem[0] * 100.0 + eps) + int(elem[1]*100.0 + eps), elem[2]) for elem in seq_elems]
+        else:
+            alignment_frames[key] = [(int(elem[0] * 100.0 + eps), int(elem[1] * 100.0 + eps), elem[2]) for elem in seq_elems]
+    return alignment_frames
 
 def ensure_dir(f):
     d = os.path.dirname(f)
