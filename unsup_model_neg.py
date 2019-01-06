@@ -581,18 +581,24 @@ def get_batch_k_aligned_samples(idlist, spk2utt=None, spk2len=None, num_speakers
         max_window_neq_len = max(window_neg_sequence_lengths)
         
         if debug:
-            print(max_window_len)
-            print(max_window_neq_len)
-        
+            print('max_window_len:', max_window_len)
+            print('max_window_neq_len:', max_window_neq_len)
+            print(window_sequence_lengths)
+            print(window_neg_sequence_lengths)       
+ 
         for i,window in enumerate(window_batch):
+            #if debug:
+            #    print('window.shape:',window.shape)
             new_window = np.zeros((max_window_len,window.shape[1]))
             new_window[0:window.shape[0]] = window
-            window_batch[0] = new_window
+            window_batch[i] = new_window
             
         for i,window in enumerate(window_neg_batch):
-            new_window = np.zeros((max_window_neq_len,window.shape[1]))
-            new_window[0:window.shape[0]] = window
-            window_batch[1] = new_window
+            #if debug:
+            #    print('window.shape:',window.shape)
+            new_neg_window = np.zeros((max_window_neq_len,window.shape[1]))
+            new_neg_window[0:window.shape[0]] = window
+            window_neg_batch[i] = new_neg_window
             
     #if self.first_call_to_get_batch:
     #    print("window_batch,",[elem[:5] for elem in window_batch],"window_neg_batch,",[elem[:5] for elem in window_neg_batch],"labels",labels) 
@@ -1641,7 +1647,9 @@ if __name__ == "__main__":
             if FLAGS.gen_feats:
                 training_data = {key: value for (key, value) in zip(utt_id_list, features)} 
             else:
-                if FLAGS.ali_ctm != '':
+                if FLAGS.ali_ctm == '':
+                    print("Filtering without alignment file.")
+
                     #make sure utterances are long enough if we are training
                     min_required_sampling_length = FLAGS.window_length + FLAGS.window_neg_length * (FLAGS.left_contexts + FLAGS.right_contexts)
                     
@@ -1657,13 +1665,18 @@ if __name__ == "__main__":
                     utt_id_list = [myid for myid in utt_id_list if myid in training_data]
                     
                     print("Before filtering for minimum required length:", len(utt_id_list), "After filtering:", len(training_data.keys()))
+
+                    if len(training_data.keys()) == 0:
+                        print("Something went wrong, no utterances left in your speech training data after filtering. Min required sampling length is:", min_required_sampling_length)
                 else:
+                    print("Filtering with alignment file. Length is in units (as taken from the alignment file).")
+
                     min_required_sequence_length = FLAGS.left_contexts + FLAGS.right_contexts + 1
                     
-                    print('min_required_sequence_length is:', min_required_sampling_length)
+                    print('min_required_sequence_length is:', min_required_sequence_length)
                     
                     #trim training data to minimum required sampling length and remove utterances without an aligment
-                    training_data = {key: value for (key, value) in zip(utt_id_list, features) if key in alignment_data and alignment_data[key] > min_required_sequence_length}
+                    training_data = {key: value for (key, value) in zip(utt_id_list, features) if key in alignment_data and len(alignment_data[key]) > min_required_sequence_length}
                     
                     print("Before filtering for minimum required length:", len(utt_id_list), "After filtering:", len(training_data.keys()))
                     
