@@ -568,7 +568,9 @@ def get_batch_k_aligned_samples(idlist, spk2utt=None, spk2len=None, num_speakers
             
                 window_batch.append(window)
                 window_neg_batch.append(window_neg)
-                
+                window_sequence_lengths.append(len(window))
+                window_neg_sequence_lengths.append(len(window_neg))
+ 
                 if debug:
                     print('Adding window of shape:', window.shape, 'positive context of shape:', window_neg.shape)
             else:
@@ -1719,7 +1721,7 @@ if __name__ == "__main__":
 
     if FLAGS.test_sampling:
         test_sampling(utt_id_list, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers)
-    if FLAGS.gen_feats:
+    elif FLAGS.gen_feats:
         gen_feat(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers, test_perf=FLAGS.test_perf, debug_visualize=FLAGS.debug_visualize)
     elif FLAGS.tnse_viz_speakers:
         tnse_viz_speakers(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize, test_perf=FLAGS.test_perf)
