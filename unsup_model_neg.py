@@ -863,11 +863,27 @@ class UnsupSeech(object):
                             print('is_training: ', is_training)
 
                         if FLAGS.embedding_transformation == "Static_LSTM":
+                            print('Using Static LSTM transformation function.')
                             cell = tf.contrib.rnn.LSTMCell(FLAGS.rnn_hidden_cells)
     
                             # reorganize input window as a sequence (list) with slicing
                             sequence = [input_window[:,num] for num in range(window_length)]
                             outputs, state = tf.nn.static_rnn(cell, sequence, dtype=tf.float32) #, sequence_length=[seq_len]) 
+                            pooled = outputs[-1]
+    
+                            needs_flattening = False
+
+                        if FLAGS.embedding_transformation == "Static_biLSTM":
+                            print('Using Static biLSTM transformation function.')
+                            cell_fw = tf.contrib.rnn.LSTMCell(FLAGS.rnn_hidden_cells)
+                            cell_bw = tf.contrib.rnn.LSTMCell(FLAGS.rnn_hidden_cells)
+
+                            # reorganize input window as a sequence (list) with slicing
+                            sequence = [input_window[:,num] for num in range(window_length)]
+
+                            outputs, output_state_fw, output_state_bw = tf.nn.static_bidirectional_rnn(cell_fw, cell_bw, sequence, dtype='float32')
+
+                            #outputs, state = tf.nn.static_rnn(cell, sequence, dtype=tf.float32) #, sequence_length=[seq_len]) 
                             pooled = outputs[-1]
     
                             needs_flattening = False
