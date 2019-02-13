@@ -437,6 +437,7 @@ def get_batch_k_samples(idlist, window_length, window_neg_length, spk2utt=None, 
 
     return window_batch,window_neg_batch,labels
 
+# Similar to get_random_audiosample, but with boundary information
 def get_random_aligned_audiosample(idlist, idlist_size, num_consecutive_elements=1, random_id=None, spk_id=None, spk2utt=None, spk2utt_keys=None , num_speakers=0, spk2len=None, debug=False):
     
     if debug:
