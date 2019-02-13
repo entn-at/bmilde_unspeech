@@ -120,6 +120,8 @@ flags.DEFINE_integer("dense_block_filters_transition", 4, "Number of filters ins
 flags.DEFINE_integer("num_highway_layers", 6, "How many layers for the highway dnn.")
 flags.DEFINE_integer("num_dnn_layers", 3, "How many layers for the baseline dnn.")
 
+flags.DEFINE_boolean("dynamic_windows", False, "Must be set to true when Dynamic_LSTM or Dynamic_biLSTM is used as transformation function.")
+
 flags.DEFINE_boolean("tied_embeddings_transforms", False, "Whether the transformations of the embeddings windows should have tied weights. Only makes sense if the window sizes match.")
 flags.DEFINE_boolean("tied_final_embeddings_transforms", False, "Whether the final embedding transform should be tied. Can be set to True, even when window sizes don't match, but might not make much sense together with use_dot_combine.")
 flags.DEFINE_boolean("use_weighted_loss_func", False, "Whether the class imbalance of having k negative samples should be countered by weighting the positive examples k-times more.")
@@ -672,14 +674,23 @@ class UnsupSeech(object):
             self.input_window_2 = tf.placeholder(tf.float32, [None, window_neg_length], name="input_window_2")
         else:
             # standard speech features, e.g. FBANK in 2D
+            
+            #[batch_size, size, feat_size]
+            
             # window 1 is fixed
             self.input_window_1 = tf.placeholder(tf.float32, [None, window_length, feat_size], name="input_window_1")
             # window 2 is either consecutive, or randomly sampled
             self.input_window_2 = tf.placeholder(tf.float32, [None, window_neg_length, feat_size], name="input_window_2")
         
         if FLAGS.dynamic_windows:
-            self.input_window_1 = tf.placeholder(tf.float32, [None, None], name="input_window_1")
-            self.input_window_2 = tf.placeholder(tf.float32, [None, None], name="input_window_2")
+            # with dynamic windows, neither batch size nor sequence is known apriori (but there is a maximum length per batch)
+            #[batch_size, max_size, feat_size]
+            self.input_window_1 = tf.placeholder(tf.float32, [None, None, feat_size], name="input_window_1")
+            self.input_window_2 = tf.placeholder(tf.float32, [None, None, feat_size], name="input_window_2")
+            
+            # the actual lengths of the sequences as input int tensor, so that the gradient of lstm can be stopped at the correct times
+            self.input_sequence1_length = tf.placeholder(tf.int32, [None], name="input_sequence1_length")
+            self.input_sequence2_length = tf.placeholder(tf.int32, [None], name="input_sequence2_length")
         
         self.labels = tf.placeholder(tf.float32, [None, 1], name="labels")
         
@@ -710,9 +721,17 @@ class UnsupSeech(object):
                                 tf.get_variable_scope().reuse_variables()
                             reuse_emb_trans=True
                         #input_reshaped = tf.reshape(self.input_x, [-1, 1, window_length, 1])
-                        window_length = int(input_window.get_shape()[1])
+                       
+                        
+                        if not FLAGS.dynamic_windows:
+                            window_length = int(input_window.get_shape()[1])
                         
                         if feat_size == 0:
+                            
+                            if FLAGS.dynamic_windows:
+                                print("End-to-end mode is currently not supported with dynamic windows.")
+                                sys.exit(-100)
+                            
                             #1conv over 1d samples
                             input_reshaped = tf.reshape(input_window, [-1, window_length, 1])
                 
@@ -786,9 +805,11 @@ class UnsupSeech(object):
             
                             pooled = tf.reshape(pooled,[-1,pool_output_dim, num_filters, 1])
                         else:
-                            pooled = tf.reshape(input_window, [-1, window_length , FLAGS.feat_size ,1])
-                            
-                        print('net input shape:',pooled.get_shape())
+                            if not FLAGS.dynamic_windows:
+                                pooled = tf.reshape(input_window, [-1, window_length , FLAGS.feat_size ,1])
+                        
+                        if not FLAGS.dynamic_windows:
+                            print('net input shape:',pooled.get_shape())
         
                         #input shape: batch, in_height, in_width, in_channels
                         #filter shape: filter_height, filter_width, in_channels, out_channels
@@ -863,6 +884,8 @@ class UnsupSeech(object):
                             print('is_training: ', is_training)
 
                         if FLAGS.embedding_transformation == "Static_LSTM":
+                            assert(FLAGS.dynamic_windows == False)
+                            
                             print('Using Static LSTM transformation function.')
                             cell = tf.contrib.rnn.LSTMCell(FLAGS.rnn_hidden_cells)
     
@@ -874,6 +897,8 @@ class UnsupSeech(object):
                             needs_flattening = False
 
                         if FLAGS.embedding_transformation == "Static_biLSTM":
+                            assert(FLAGS.dynamic_windows == False)
+                            
                             print('Using Static biLSTM transformation function.')
                             cell_fw = tf.contrib.rnn.LSTMCell(FLAGS.rnn_hidden_cells)
                             cell_bw = tf.contrib.rnn.LSTMCell(FLAGS.rnn_hidden_cells)
@@ -887,9 +912,51 @@ class UnsupSeech(object):
                             pooled = outputs[-1]
     
                             needs_flattening = False
-
-                       # if FLAGS.embedding_transformation == "Static_GRU":
-                       #     needs_flattening = False
+                            
+                        if FLAGS.embedding_transformation == "Dynamic_LSTM":
+                            assert(FLAGS.dynamic_windows == True)
+                            
+                            print('Using dynmaic LSTM transformation function.')
+                            cell = tf.contrib.rnn.LSTMCell(FLAGS.rnn_hidden_cells)
+                            
+                            #inputs: [batch_size, max_time, ...]        
+                            if i==0:
+                                #for the first input window
+                                outputs, state = tf.nn.dynamic_rnn(cell, input_window, sequence_length=self.input_sequence1_length, dtype=tf.float32) #, sequence_length=[seq_len]) 
+                            if i==1:
+                                #for the second input window
+                                outputs, state = tf.nn.dynamic_rnn(cell, input_window, sequence_length=self.input_sequence2_length, dtype=tf.float32) 
+                       
+                            #In a dynamic lstm, state will have the last states of the lstm accross the batch. The output is a tuple (C,h) and we need h. Output is [batch_size, cell.output_size] 
+                            pooled = state[1] 
+                            print('Output shape of dynamic_rnn:', pooled.get_shape())
+    
+                            needs_flattening = False     
+                        
+                        if FLAGS.embedding_transformation == "Dynamic_biLSTM":
+                            assert(FLAGS.dynamic_windows == True)
+                            
+                            print('Using dynamic biLSTM transformation function.')
+                            cell_fw = tf.contrib.rnn.LSTMCell(FLAGS.rnn_hidden_cells)
+                            cell_bw = tf.contrib.rnn.LSTMCell(FLAGS.rnn_hidden_cells)
+                            
+                            #inputs: [batch_size, max_time, ...]        
+                            if i==0:
+                                #for the first input window
+                                outputs, states = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, input_window, sequence_length=self.input_sequence1_length, dtype=tf.float32) #, sequence_length=[seq_len]) 
+                            if i==1:
+                                #for the second input window
+                                outputs, states = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, input_window, sequence_length=self.input_sequence2_length, dtype=tf.float32) 
+                            
+                            output_state_fw, output_state_bw = states
+                            
+                            # In a dynamic bi-lstm, output_state_fw and output_state_bw will have the last states of the lstm accross the batch.
+                            # The output is a tuple (C,h) and we need h. Output is [batch_size, cell.output_size] 
+                            
+                            pooled = output_state_fw[1] + output_state_bw[1]
+                            print('Output shape of dynamic_bidirectional_rnn:', pooled.get_shape())
+    
+                            needs_flattening = False     
 
                         # add summaries for res net and moving variance / moving averages of batch norm.
                         if FLAGS.embedding_transformation.startswith("Resnet") and FLAGS.log_tensorboard:
@@ -957,6 +1024,7 @@ class UnsupSeech(object):
                 if FLAGS.use_dot_combine:
                     # computes the dot product between self.outs[0] and self.outs[1]
                     print('out0 (embedding) shape:', self.outs[0].shape) 
+                    print('out1 (embedding) shape:', self.outs[1].shape) 
                     self.logits = tf.reduce_sum( tf.multiply(self.outs[0], self.outs[1]), 1, keep_dims=True)
                 else:
                     # this is an alternative formulation that substracts self.outs[0] and self.outs[1] and projects down to 1
@@ -984,8 +1052,13 @@ class UnsupSeech(object):
                 self.saver = tf.train.Saver(tf.global_variables())
 
     # do a training step with the supplied input data
-    def step(self, sess, input_window_1, input_window_2, labels):
+    def step(self, sess, input_window_1, input_window_2, labels, window_sequence_lengths=None, window_neg_sequence_lengths=None):
         feed_dict = {self.input_window_1: input_window_1, self.input_window_2: input_window_2, self.labels: labels}
+        
+        if window_sequence_lengths != None and window_neg_sequence_lengths != None:
+            feed_dict[self.input_sequence1_length] = window_sequence_lengths
+            feed_dict[self.input_sequence2_length] = window_neg_sequence_lengths
+        
         assert(len(input_window_1) == len(input_window_2))
         assert(len(input_window_2) == len(labels))
         tensor_out = sess.run([self.train_op, self.out, self.cost], feed_dict=feed_dict)
@@ -1461,12 +1534,32 @@ def train(utt_id_list, spk2utt=None, spk2len=None, num_speakers=None):
 
                 # Get a batch and make a step.
                 start_time = time.time()
-                input_window_1, input_window_2, labels = get_batch_k_samples(idlist=utt_id_list, window_length=FLAGS.window_length, 
-                                                                                   window_neg_length=FLAGS.window_neg_length, left_contexts=FLAGS.left_contexts,
-                                                                                   right_contexts=FLAGS.right_contexts, k=FLAGS.negative_samples, 
-                                                                                   spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers, sample_2x_neg=FLAGS.sample_2x_neg)
                 
-                out, train_loss = model.step(sess, input_window_1, input_window_2, labels)
+                
+                if FLAGS.dynamic_windows:
+                    #(idlist, spk2utt=None, spk2len=None, num_speakers = 0, left_contexts=0, right_contexts=1 , k=4, sample_2x_neg=True, pad_to_maximum_length=True, debug=False)
+                    
+                    input_window_1, input_window_2, labels, window_sequence_lengths, window_neg_sequence_lengths = get_batch_k_aligned_samples(idlist=utt_id_list, spk2utt=spk2utt,
+                                                                                        spk2len=spk2len, num_speakers=num_speakers, left_contexts=FLAGS.left_contexts,
+                                                                                        right_contexts=FLAGS.right_contexts, k=FLAGS.negative_samples, 
+                                                                                        sample_2x_neg=FLAGS.sample_2x_neg, pad_to_maximum_length=True)
+                    
+                    if FLAGS.debug:
+                        assert(len(window_sequence_lengths) == len(window_neg_sequence_lengths))
+                        assert(len(input_window_1) == len(input_window_2))
+                        assert(len(input_window_1) == len(window_sequence_lengths))
+                    
+                    out, train_loss = model.step(sess, input_window_1, input_window_2, labels, window_sequence_lengths, window_neg_sequence_lengths)
+                    
+                else:
+                    #standard static windows
+                    input_window_1, input_window_2, labels = get_batch_k_samples(idlist=utt_id_list, window_length=FLAGS.window_length, 
+                                                                                       window_neg_length=FLAGS.window_neg_length, left_contexts=FLAGS.left_contexts,
+                                                                                       right_contexts=FLAGS.right_contexts, k=FLAGS.negative_samples, 
+                                                                                       spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers, sample_2x_neg=FLAGS.sample_2x_neg)
+                    
+                    out, train_loss = model.step(sess, input_window_1, input_window_2, labels)
+                
                 train_losses.append(train_loss)
 
                 step_time += (time.time() - start_time) / FLAGS.steps_per_checkpoint
@@ -1656,12 +1749,16 @@ if __name__ == "__main__":
             features, utt_id_list = kaldi_io.readMemmapCache(memmap_dir=FLAGS.memmap_dir, memmap_dtype=FLAGS.memmap_dtype)
         #Using Kaldi scp
         if FLAGS.filelist.endswith('.scp'):
+            print('Now reading features from Kaldi scp file:', FLAGS.filelist)
             features, utt_id_list = kaldi_io.readScp(FLAGS.filelist, limit = 1000 if FLAGS.debug else np.inf, memmap_dir=FLAGS.memmap_dir, memmap_dtype=FLAGS.memmap_dtype)
+            print('Done!')
         elif FLAGS.filelist.endswith('.ark'):
+            print('Now reading features from Kaldi ark file:', FLAGS.filelist)
             features, utt_id_list = kaldi_io.readArk(FLAGS.filelist, limit = 1000 if FLAGS.debug else np.inf, memmap_dir=FLAGS.memmap_dir, memmap_dtype=FLAGS.memmap_dtype)
+            print('Done!')
             
         if utt_id_list is not None:
-            print(utt_id_list)
+            print('First 100 utterances are:',utt_id_list[:100])
             
             if FLAGS.gen_feats:
                 training_data = {key: value for (key, value) in zip(utt_id_list, features)} 
@@ -1743,4 +1840,5 @@ if __name__ == "__main__":
     elif FLAGS.tnse_viz_speakers:
         tnse_viz_speakers(utt_id_list, FLAGS.filelist, feats_outputfile=FLAGS.output_feat_file, feats_format=FLAGS.output_feat_format, hop_size = FLAGS.genfeat_hopsize, test_perf=FLAGS.test_perf)
     else:
+        print('Now starting training...')
         train(utt_id_list, spk2utt=spk2utt, spk2len=spk2len, num_speakers=num_speakers)
