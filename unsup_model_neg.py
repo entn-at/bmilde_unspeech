@@ -1530,6 +1530,10 @@ def train(utt_id_list, spk2utt=None, spk2len=None, num_speakers=None):
                     #input_window_1, input_window_2, labels = model.get_batch_k_samples(filelist=filelist, window_length=FLAGS.window_length, window_neg_length=FLAGS.window_neg_length, k=FLAGS.negative_samples)
                     summary_str = sess.run(model.train_summary_op, feed_dict={model.input_window_1:input_window_1,
                                                                               model.input_window_2:input_window_2, model.labels: labels})
+                    if FLAGS.dynamic_windows:
+                        feed_dict[model.input_sequence1_length] = window_sequence_lengths
+                        feed_dict[model.input_sequence2_length] = window_neg_sequence_lengths
+                    
                     summary_writer.add_summary(summary_str, current_step)
 
                 # Get a batch and make a step.
@@ -1544,6 +1548,9 @@ def train(utt_id_list, spk2utt=None, spk2len=None, num_speakers=None):
                                                                                         right_contexts=FLAGS.right_contexts, k=FLAGS.negative_samples, 
                                                                                         sample_2x_neg=FLAGS.sample_2x_neg, pad_to_maximum_length=True)
                     
+                    assert(window_sequence_lengths != None)
+                    assert(window_neg_sequence_lengths != None)
+
                     if FLAGS.debug:
                         assert(len(window_sequence_lengths) == len(window_neg_sequence_lengths))
                         assert(len(input_window_1) == len(input_window_2))
