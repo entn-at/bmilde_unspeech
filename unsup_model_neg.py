@@ -129,7 +129,7 @@ flags.DEFINE_boolean("use_dot_combine", True, "Define the loss function over the
 flags.DEFINE_boolean("unit_normalize", False, "Before computing the dot product, normalize network output to unit length. Effectively computes the cosine distance. Doesnt really help the optimization.")
 flags.DEFINE_boolean("unit_normalize_var", False, "Use a trainable var to scale the output of the network.")
 
-flags.DEFINE_integer("minimum_speaker_lengnth", 4, "Minimum number of utterances per speaker, if same_spk sampler is used")
+flags.DEFINE_integer("minimum_speaker_length", 4, "Minimum number of utterances per speaker, if same_spk sampler is used")
 flags.DEFINE_integer("negative_samples", 4, "How many negative samples to generate.")
 flags.DEFINE_integer("test_perf_samples", 100, "How many batches to generate for testing accuracy.")
 
