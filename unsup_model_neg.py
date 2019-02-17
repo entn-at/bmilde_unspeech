@@ -129,13 +129,13 @@ flags.DEFINE_boolean("use_dot_combine", True, "Define the loss function over the
 flags.DEFINE_boolean("unit_normalize", False, "Before computing the dot product, normalize network output to unit length. Effectively computes the cosine distance. Doesnt really help the optimization.")
 flags.DEFINE_boolean("unit_normalize_var", False, "Use a trainable var to scale the output of the network.")
 
+flags.DEFINE_integer("minimum_speaker_lengnth", 4, "Minimum number of utterances per speaker, if same_spk sampler is used")
 flags.DEFINE_integer("negative_samples", 4, "How many negative samples to generate.")
 flags.DEFINE_integer("test_perf_samples", 100, "How many batches to generate for testing accuracy.")
 
 flags.DEFINE_boolean("test_perf", False, "When generating features, test accuracy by randomly sampling batches and compare the prediction quality of the model.")
 flags.DEFINE_boolean("debug_visualize", False , "Visualize the generated features.")
 flags.DEFINE_boolean("debug_visualize_batch", False , "Visualize the generated batches.")
-
 
 
 flags.DEFINE_integer("batch_size", 32, "Batch Size (default: 64)")
@@ -1813,6 +1813,7 @@ if __name__ == "__main__":
     if FLAGS.spk2utt != '' and FLAGS.spk2utt != 'fake':
         
         print('Loading speaker information from ', FLAGS.spk2utt)
+        print('Minimum number of utterances per speaker:', FLAGS.minimum_speaker_length)
         spk2utt = utils.loadSpk2Utt(FLAGS.spk2utt)
         
         spk2utt = dict(spk2utt)
@@ -1827,10 +1828,14 @@ if __name__ == "__main__":
         
             if len(spk2utt[spk]) == 0:
                 del_list.append(spk)
+            else:
+                if FLAGS.minimum_speaker_length != -1 and len(spk2utt[spk]) < FLAGS.minimum_speaker_length:
+                    del_list.append(spk)
+
         for spk in del_list:
             del spk2utt[spk]
       
-        print('spk2utt:', spk2utt) 
+        #print('spk2utt:', spk2utt) 
         spk2len = compute_spk2len(spk2utt)
         
         print('spk2len:',spk2len)
