@@ -76,13 +76,13 @@ def undiscretize(signal, mu=255.0):
     return signal
 
 
-def readWordPosFile(filename,id_pos=0, pos1=2,pos2=3,elem_pos=-1):
+def readWordPosFile(filename,id_pos=0, pos1=2,pos2=3,elem_pos=-1,elem_type=str):
     unalign_list = defaultdict(list)
     with open(filename) as f:
         for line in f.readlines():
             split = line[:-1].split(" ")
             if elem_pos != -1:
-                unalign_list[split[id_pos]] += [(float(split[pos1]), float(split[pos2]), int(split[elem_pos]))]
+                unalign_list[split[id_pos]] += [(float(split[pos1]), float(split[pos2]), elem_type(split[elem_pos]))]
             else:
                 unalign_list[split[id_pos]] += [(float(split[pos1]), float(split[pos2]))]
     return unalign_list
