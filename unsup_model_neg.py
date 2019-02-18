@@ -106,7 +106,7 @@ flags.DEFINE_integer("right_contexts", 2, "How many right context windows")
 flags.DEFINE_integer("embedding_size", 100 , "Fully connected size at the end of the network.")
 
 flags.DEFINE_integer("fc_size", 1024 , "Fully connected size at the end of the network.")
-flags.DEFINE_integer("rnn_hidden_cells", 1024 , "Size of hidden cells for recurrent neural networks, e.g. if LSTMs or GRUs are used in the embedding transform.")
+flags.DEFINE_integer("rnn_hidden_cells", 512 , "Size of hidden cells for recurrent neural networks, e.g. if LSTMs or GRUs are used in the embedding transform.")
 
 flags.DEFINE_boolean("first_layer_tanh", True, "Whether tanh should be used for the output conv1d filters in end-to-end networks.")
 flags.DEFINE_boolean("first_layer_log1p", True, "Whether log1p should be applied to the output of the conv1d filters.")
