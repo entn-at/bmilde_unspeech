@@ -552,7 +552,7 @@ def get_batch_k_aligned_samples(idlist, spk2utt=None, spk2len=None, num_speakers
                         print('[true sample] Warning, window size not correct in get_batch_k_samples:', 'shape(w):', window.shape, 'shape(neg_w):' ,window_neg.shape, '. I will ignore this sample.')
             last_target_window = window
         else:
-            # sample k negative pairs
+            # Sample k negative pairs
             if debug:
                 print('Selecting random negative sample from speaker:',spk_id)
             # Select two random samples. If we do per speaker sampling, then spk_id!= None and two samples from the same speaker are sampled.
@@ -582,6 +582,8 @@ def get_batch_k_aligned_samples(idlist, spk2utt=None, spk2len=None, num_speakers
     labels = np.asarray(labels).reshape(-1,1)
 
     if pad_to_maximum_length:
+        # We find out the maximum length of all the sequences and pad the complete batch to this length with zeros
+        # Note that
         max_window_len = max(window_sequence_lengths)
         max_window_neq_len = max(window_neg_sequence_lengths)
         
@@ -1066,11 +1068,15 @@ class UnsupSeech(object):
         _, output, loss = tensor_out
         return  output, loss
 
-    def gen_feat_batch(self, sess, input_windows, out_num=1):
+    def gen_feat_batch(self, sess, input_windows, out_num=1, window_sequence_lengths=None):
         if out_num==0:
             feed_dict = {self.input_window_1: input_windows}
+            if window_sequence_lengths != None:
+                feed_dict[self.input_sequence1_length] = window_sequence_lengths
         elif out_num==1:
             feed_dict = {self.input_window_2: input_windows}
+            if window_sequence_lengths != None:
+                feed_dict[self.input_sequence2_length] = window_sequence_lengths
         #feats = sess.run(self.pre_outs[out_num], feed_dict=feed_dict)
         feats = sess.run(self.outs[out_num], feed_dict=feed_dict)
         return feats
@@ -1313,6 +1319,8 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                             for elem in accs:
                                 sampled_accuracy.write(str(elem) + '\n')
                     
+                    first_feat = True
+                    
                     # model is now loaded with the trained parameters
                     for myfile in utt_id_list:
 
@@ -1333,6 +1341,55 @@ def gen_feat(utt_id_list, filelist, feats_outputfile, feats_format, hop_size, sp
                             feat = model.gen_feat_batch(sess, utils.rolling_window(input_signal, FLAGS.window_length, hop_size))
                             utils.writeArkTextFeatFile(feat,  myfile.replace('.wav', '') , FLAGS.output_kaldi_ark, not first_file)
                             first_file = False
+                        if feats_format == "unit_emb":
+                            
+                            #check that alignment and features are available
+                            if myfile not in training_data:
+                                print('Warning, no features available for', myfile,'in training data!')
+                                continue
+                            if myfile not in alignment_data:
+                                print('Warning, no alignment available for', myfile,'in alignment data!')
+                                continue
+                            
+                            input_signal = training_data[myfile]
+                            input_length = input_signal.shape[0]
+                            feat_size = input_signal.shape[1]
+                            
+                            extracted_unit_signals = []
+                            window_lengths = []
+                            unit_len_max = 0
+                            num_units = 0
+                            
+                            print('Generate unit_emb features for', myfile , 'alignment units:', ' '.join([align[2] for align in alignment_data[myfile]]))
+                            
+                            #extract the input features
+                            for alignment in alignment_data[myfile]:
+                                start_pos, end_pos, unit = alignment
+                                extracted_unit_signal = input_signal[start_pos:end_pos]
+                                unit_len = end_pos - start_pos
+                                window_lengths.append(unit_len)
+                                unit_len_max = max(unit_len,unit_len_max)
+                                num_units += 1
+                                extracted_unit_signals.append(extracted_unit_signal)
+                            
+                            #pad the input features to the maximum sequence length
+                            extracted_unit_signals_np = np.zeros((num_units, unit_len_max, feat_size))
+                            for i,unit_signal in enumerate(extracted_unit_signals):
+                                unit_signal_expanded = np.zeros((unit_len_max, feat_size))
+                                unit_signal_expanded[:unit_signal.shape[0]] = unit_signal
+                                extracted_unit_signals_np[i] = unit_signal_expanded
+                            
+                            #run the batch through the model
+                            feats = model.gen_feat_batch(sess, extracted_unit_signals_np, out_num=0, window_sequence_lengths=window_lengths)
+                            
+                            #write out the id, unit and features to the feature file
+                            with open(outputfile + '.emb','w' if first_feat else 'a+') as outfile:
+                                for alignment,feat in zip(alignment_data[myfile],feats):
+                                    start_pos, end_pos, unit = alignment
+                                    outfile.write(myfile + " " + alignment[2] + " " + np.array2string(feat, separator=',').replace('\n','') + '\n')
+                                    
+                            if first_feat:
+                                first_feat = False
                             
                         if feats_format == "kaldi_bin":           
                             input_signal = training_data[myfile]
