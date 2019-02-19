@@ -1,0 +1,1 @@
+python3 unsup_model_neg.py --dynamic_windows --ali_ctm feats/tedlium/train/alignments.txt --filelist feats/tedlium/train/cleaned.unnormalized.feats.ark --spk2utt feats/tedlium/train/spk2utt_cleaned --noend_to_end --embedding_transformation Dynamic_biLSTM --unit_normalize_var True --l2_reg 0.0001 --batch_size 32
