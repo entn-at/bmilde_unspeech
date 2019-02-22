@@ -100,8 +100,11 @@ flags.DEFINE_integer("num_filters", 40, "Number of filters per filter size (defa
 flags.DEFINE_integer("window_length", 50, "Main window length, samples (end-to-end) or frames (FBANK)") # 100+ ms @ 16kHz
 flags.DEFINE_integer("window_neg_length", 50, "Context window length, samples (end-to-end) or frames (FBANK)") # 100+ ms @ 16kHz
 
-flags.DEFINE_integer("left_contexts", 2, "How many left context windows")
-flags.DEFINE_integer("right_contexts", 2, "How many right context windows")
+flags.DEFINE_integer("left_contexts", 2, "How many left context windows (including gap windows)")
+flags.DEFINE_integer("right_contexts", 2, "How many right context windows (including gap windows)")
+
+flags.DEFINE_integer("left_gap", 1, "Gap between center window and first left context window (units or frames)")
+flags.DEFINE_integer("right_gap", 1, "Gap between center window and first right context window (units or frames)")
 
 flags.DEFINE_integer("embedding_size", 100 , "Fully connected size at the end of the network.")
 
@@ -496,7 +499,7 @@ def get_random_aligned_audiosample(idlist, idlist_size, num_consecutive_elements
     return np.array(audio_data[start_pos:end_pos]), align_data[random_element_pos_num:random_element_pos_num+num_consecutive_elements], spk_id
 
 # Similar to get_batch_k_samples, but this samples using aligned start / stop position information. 
-def get_batch_k_aligned_samples(idlist, spk2utt=None, spk2len=None, num_speakers = 0, left_contexts=0, right_contexts=1 , k=4, sample_2x_neg=True, pad_to_maximum_length=True, debug=False):            
+def get_batch_k_aligned_samples(idlist, spk2utt=None, spk2len=None, num_speakers = 0, left_contexts=0, right_contexts=1 , k=4, sample_2x_neg=True, pad_to_maximum_length=True, debug=False, left_gap=0, right_gap=0):            
     window_batch = []
     window_neg_batch = []
     labels = []
@@ -532,7 +535,7 @@ def get_batch_k_aligned_samples(idlist, spk2utt=None, spk2len=None, num_speakers
             for context_num in xrange(num_consecutive_elements):
                 neg_start_pos = align_data[context_num][0] - offset_pos
                 neg_end_pos = align_data[context_num][1] - offset_pos
-                if context_num != left_contexts:
+                if context_num != left_contexts and context_num < left_contexts - left_gap and context_num > left_contexts + right_gap:
                     window = combined_sample[center_window_start_pos:center_window_end_pos]
                     window_neg = combined_sample[neg_start_pos:neg_end_pos] 
                     
@@ -657,7 +660,7 @@ class UnsupSeech(object):
             self.train_summary_op = tf.summary.merge_all()
             train_summary_dir = os.path.join(self.out_dir, "summaries", "train")
     
-    def __init__(self, window_length, window_neg_length, filter_sizes, num_filters, fc_size, embeddings_size, dropout_keep_prob, train_files, k, left_contexts, right_contexts, is_training=True, create_new_train_dir=True, batch_size=128, feat_size=40):
+    def __init__(self, window_length, window_neg_length, filter_sizes, num_filters, fc_size, embeddings_size, dropout_keep_prob, train_files, k, left_contexts, right_contexts, is_training=True, create_new_train_dir=True, batch_size=128, feat_size=40, left_gap=1, right_gap=1):
 
         self.train_files = train_files
 
@@ -667,6 +670,8 @@ class UnsupSeech(object):
         self.embeddings_size = embeddings_size
         self.left_contexts = left_contexts
         self.right_contexts = right_contexts
+        self.left_gap = left_gap
+        self.right_gap = right_gap
 
         # feat_size of 0 means were have end-to-end with 1d samples
         if feat_size == 0:
@@ -1084,7 +1089,7 @@ class UnsupSeech(object):
 def get_model_flags_param_short():
     ''' get model params as string, e.g. to use it in an output filepath '''
     return ('e2e' if FLAGS.end_to_end else 'feats') + '_trans' + FLAGS.embedding_transformation + '_nsampling' + ('_same_spk' if FLAGS.spk2utt is not '' else '_rnd') + '_win' + str(FLAGS.window_length) + \
-                                    '_neg_samples' + str(FLAGS.negative_samples) + '_lcontexts' + str(FLAGS.left_contexts) + '_rcontexts' + str(FLAGS.right_contexts) + \
+                                    '_neg_samples' + str(FLAGS.negative_samples) + '_lcontexts' + str(FLAGS.left_contexts) + ('gap'+str(FLAGS.left_gap) if FLAGS.left_gap != 0) + '_rcontexts' + str(FLAGS.right_contexts) + ('gap'+str(FLAGS.right_gap) if FLAGS.right_gap != 0) + \
                                     '_flts' + str(FLAGS.num_filters) + '_embsize' + str(FLAGS.embedding_size) + ('_dnn' + str(FLAGS.num_dnn_layers) if FLAGS.embedding_transformation=='BaselineDnn' else '') + \
                                     '_fc_size' + str(FLAGS.fc_size) + ('_unit_norm_var' if FLAGS.unit_normalize_var else '') + \
                                     '_dropout_keep' + str(FLAGS.dropout_keep_prob) + ('_batchnorm_bndecay' + str(FLAGS.batch_normalization_decay) if FLAGS.batch_normalization else '') + '_l2_reg' + str(FLAGS.l2_reg) + \
@@ -1104,7 +1109,7 @@ def tnse_viz_speakers(utt_id_list, filelist, feats_outputfile, feats_format, hop
         with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
             model = UnsupSeech(window_length=FLAGS.window_length, window_neg_length=FLAGS.window_neg_length, filter_sizes=filter_sizes, 
                     num_filters=FLAGS.num_filters, fc_size=FLAGS.fc_size, embeddings_size=FLAGS.embedding_size, dropout_keep_prob=FLAGS.dropout_keep_prob, k = FLAGS.negative_samples, 
-                    left_contexts=FLAGS.left_contexts, right_contexts=FLAGS.right_contexts, train_files = utt_id_list,  batch_size=FLAGS.batch_size, is_training=False, create_new_train_dir=False)
+                    left_contexts=FLAGS.left_contexts, right_contexts=FLAGS.right_contexts, left_gap=FLAGS.left_gap, right_gap=FLAGS.right_gap, train_files = utt_id_list, batch_size=FLAGS.batch_size, is_training=False, create_new_train_dir=False)
             
             if FLAGS.train_dir != "":
                 print('FLAGS.train_dir',FLAGS.train_dir)
@@ -1605,7 +1610,7 @@ def train(utt_id_list, spk2utt=None, spk2len=None, num_speakers=None):
                     
                     input_window_1, input_window_2, labels, window_sequence_lengths, window_neg_sequence_lengths = get_batch_k_aligned_samples(idlist=utt_id_list, spk2utt=spk2utt,
                                                                                         spk2len=spk2len, num_speakers=num_speakers, left_contexts=FLAGS.left_contexts,
-                                                                                        right_contexts=FLAGS.right_contexts, k=FLAGS.negative_samples, 
+                                                                                        right_contexts=FLAGS.right_contexts, k=FLAGS.negative_samples, left_gap=FLAGS.left_gap, right_gap=FLAGS.right_gap, 
                                                                                         sample_2x_neg=FLAGS.sample_2x_neg, pad_to_maximum_length=True)
                     
                     assert(window_sequence_lengths != None)
@@ -1677,7 +1682,7 @@ def test_sampling(utt_id_list, spk2utt=None, spk2len=None, num_speakers=0 ):
     
     if FLAGS.ali_ctm != "":
         input_window_1, input_window_2, labels, win_lengths, win_neg_lengths = get_batch_k_aligned_samples(idlist=utt_id_list, spk2utt=spk2utt, spk2len=spk2len, 
-                                                                                                         num_speakers=num_speakers, left_contexts=FLAGS.left_contexts, right_contexts=FLAGS.right_contexts,
+                                                                                                         num_speakers=num_speakers, left_contexts=FLAGS.left_contexts, right_contexts=FLAGS.right_contexts, left_gap=FLAGS.left_gap, right_gap=FLAGS.right_gap,
                                                                                                          k=FLAGS.negative_samples, sample_2x_neg=False, 
                                                                                                          debug=True, pad_to_maximum_length=True)
     else:
