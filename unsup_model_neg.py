@@ -535,7 +535,7 @@ def get_batch_k_aligned_samples(idlist, spk2utt=None, spk2len=None, num_speakers
             for context_num in xrange(num_consecutive_elements):
                 neg_start_pos = align_data[context_num][0] - offset_pos
                 neg_end_pos = align_data[context_num][1] - offset_pos
-                if context_num != left_contexts and context_num < left_contexts - left_gap and context_num > left_contexts + right_gap:
+                if context_num != left_contexts and (context_num < left_contexts - left_gap or context_num > left_contexts + right_gap):
                     window = combined_sample[center_window_start_pos:center_window_end_pos]
                     window_neg = combined_sample[neg_start_pos:neg_end_pos] 
                     
@@ -1089,7 +1089,7 @@ class UnsupSeech(object):
 def get_model_flags_param_short():
     ''' get model params as string, e.g. to use it in an output filepath '''
     return ('e2e' if FLAGS.end_to_end else 'feats') + '_trans' + FLAGS.embedding_transformation + '_nsampling' + ('_same_spk' if FLAGS.spk2utt is not '' else '_rnd') + '_win' + str(FLAGS.window_length) + \
-                                    '_neg_samples' + str(FLAGS.negative_samples) + '_lcontexts' + str(FLAGS.left_contexts) + ('gap'+str(FLAGS.left_gap) if FLAGS.left_gap != 0) + '_rcontexts' + str(FLAGS.right_contexts) + ('gap'+str(FLAGS.right_gap) if FLAGS.right_gap != 0) + \
+                                    '_neg_samples' + str(FLAGS.negative_samples) + '_lcontexts' + str(FLAGS.left_contexts) + ('gap'+str(FLAGS.left_gap) if FLAGS.left_gap != 0 else "") + '_rcontexts' + str(FLAGS.right_contexts) + ('gap'+str(FLAGS.right_gap) if FLAGS.right_gap != 0 else "") + \
                                     '_flts' + str(FLAGS.num_filters) + '_embsize' + str(FLAGS.embedding_size) + ('_dnn' + str(FLAGS.num_dnn_layers) if FLAGS.embedding_transformation=='BaselineDnn' else '') + \
                                     '_fc_size' + str(FLAGS.fc_size) + ('_unit_norm_var' if FLAGS.unit_normalize_var else '') + \
                                     '_dropout_keep' + str(FLAGS.dropout_keep_prob) + ('_batchnorm_bndecay' + str(FLAGS.batch_normalization_decay) if FLAGS.batch_normalization else '') + '_l2_reg' + str(FLAGS.l2_reg) + \
