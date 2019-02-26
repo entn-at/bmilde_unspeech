@@ -1698,7 +1698,11 @@ def test_sampling(utt_id_list, spk2utt=None, spk2len=None, num_speakers=0 ):
     
     print('length of input_window_1:',len(input_window_1))
     print('length of input_window_2:',len(input_window_2))
-    
+   
+    if FLAGS.ali_ctm != "":
+        print('win_lengths:',win_lengths)
+        print('win_neg_lengths:',win_neg_lengths)
+ 
     print('Now plotting sample.')
     
     plt.figure(0)
@@ -1746,7 +1750,7 @@ def test_sampling(utt_id_list, spk2utt=None, spk2len=None, num_speakers=0 ):
         
     
     for i,ax in enumerate(axarr):
-        print(input_window_1[i])
+        #print(input_window_1[i])
         print('input_window_1[i]:',input_window_1[i].shape)
         print('input_window_2[i]:',input_window_2[i].shape)
         combined_feats = np.vstack([input_window_1[i], input_window_2[i]])
